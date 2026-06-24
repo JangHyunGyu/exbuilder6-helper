@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>eXBuilder6 화면 마법사</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="assets/css/styles.css" />
+    <script src="assets/js/app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#screen" aria-label="eXBuilder6 화면 마법사">
+          <span class="brand-mark" aria-hidden="true">eX6</span>
+          <span class="brand-copy">
+            <strong>eXBuilder6 화면 마법사</strong>
+            <small id="fileSummary">sampleScreen.clx / sampleScreen.js</small>
+          </span>
+        </a>
+
+        <nav class="step-tabs" aria-label="작성 단계">
+          <button class="step-tab is-active" type="button" data-step="screen">화면</button>
+          <button class="step-tab" type="button" data-step="data">데이터</button>
+          <button class="step-tab" type="button" data-step="logic">이벤트</button>
+          <button class="step-tab" type="button" data-step="output">출력</button>
+        </nav>
+
+        <div class="top-actions">
+          <button id="copyClx" class="tool-button" type="button">CLX 복사</button>
+          <button id="copyJs" class="tool-button" type="button">JS 복사</button>
+          <button id="downloadAll" class="primary-button" type="button">파일 받기</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="wizard-panel" aria-label="화면 생성 입력">
+          <form id="wizardForm" autocomplete="off">
+            <section class="wizard-section is-active" data-section="screen">
+              <div class="section-head">
+                <h1>화면</h1>
+                <button id="resetAll" class="link-button" type="button">초기화</button>
+              </div>
+
+              <div class="field-grid two">
+                <label class="field">
+                  <span>프리셋</span>
+                  <select id="templateType" data-field="templateType">
+                    <option value="list">조회 목록</option>
+                    <option value="form">입력 저장</option>
+                    <option value="popup">팝업 선택</option>
+                  </select>
+                </label>
+
+                <label class="field action-field">
+                  <span>프리셋 적용</span>
+                  <button id="applyPreset" class="tool-button full" type="button">적용</button>
+                </label>
+
+                <label class="field">
+                  <span>화면명</span>
+                  <input id="screenTitle" data-field="screenTitle" type="text" />
+                </label>
+
+                <label class="field">
+                  <span>화면 ID</span>
+                  <input id="screenId" data-field="screenId" type="text" />
+                </label>
+
+                <label class="field">
+                  <span>파일명</span>
+                  <input id="fileBaseName" data-field="fileBaseName" type="text" />
+                </label>
+
+                <label class="field">
+                  <span>앱 경로</span>
+                  <input id="appPath" data-field="appPath" type="text" />
+                </label>
+
+                <label class="field">
+                  <span>작성자</span>
+                  <input id="author" data-field="author" type="text" />
+                </label>
+
+                <div class="field-pair">
+                  <label class="field">
+                    <span>너비</span>
+                    <input id="screenWidth" data-field="screenWidth" type="number" min="320" step="10" />
+                  </label>
+                  <label class="field">
+                    <span>높이</span>
+                    <input id="screenHeight" data-field="screenHeight" type="number" min="240" step="10" />
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section class="wizard-section" data-section="data">
+              <div class="section-head">
+                <h1>데이터</h1>
+                <span id="dataSummary" class="status-pill">0개</span>
+              </div>
+
+              <div class="field-grid">
+                <label class="field">
+                  <span>조회 조건</span>
+                  <textarea id="searchFields" data-field="searchFields" rows="7" spellcheck="false"></textarea>
+                </label>
+
+                <label class="field">
+                  <span>목록/입력 컬럼</span>
+                  <textarea id="dataFields" data-field="dataFields" rows="10" spellcheck="false"></textarea>
+                </label>
+
+                <div class="field-grid three">
+                  <label class="field">
+                    <span>조회 URL</span>
+                    <input id="endpointSearch" data-field="endpointSearch" type="text" />
+                  </label>
+                  <label class="field">
+                    <span>저장 URL</span>
+                    <input id="endpointSave" data-field="endpointSave" type="text" />
+                  </label>
+                  <label class="field">
+                    <span>삭제 URL</span>
+                    <input id="endpointDelete" data-field="endpointDelete" type="text" />
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section class="wizard-section" data-section="logic">
+              <div class="section-head">
+                <h1>이벤트</h1>
+                <span id="logicSummary" class="status-pill">기본</span>
+              </div>
+
+              <div class="toggle-grid">
+                <label class="toggle-row">
+                  <input id="includeSearch" data-field="includeSearch" type="checkbox" />
+                  <span>조회</span>
+                </label>
+                <label class="toggle-row">
+                  <input id="includeReset" data-field="includeReset" type="checkbox" />
+                  <span>초기화</span>
+                </label>
+                <label class="toggle-row">
+                  <input id="includeAdd" data-field="includeAdd" type="checkbox" />
+                  <span>행 추가</span>
+                </label>
+                <label class="toggle-row">
+                  <input id="includeSave" data-field="includeSave" type="checkbox" />
+                  <span>저장</span>
+                </label>
+                <label class="toggle-row">
+                  <input id="includeDelete" data-field="includeDelete" type="checkbox" />
+                  <span>삭제</span>
+                </label>
+                <label class="toggle-row">
+                  <input id="includeCommonUtil" data-field="includeCommonUtil" type="checkbox" />
+                  <span>공통 util</span>
+                </label>
+              </div>
+
+              <div class="field-grid three compact">
+                <label class="field">
+                  <span>한 줄 항목</span>
+                  <input id="controlsPerRow" data-field="controlsPerRow" type="number" min="1" max="4" />
+                </label>
+                <label class="field">
+                  <span>라벨 폭</span>
+                  <input id="labelWidth" data-field="labelWidth" type="number" min="50" max="180" />
+                </label>
+                <label class="field">
+                  <span>그리드 높이</span>
+                  <input id="gridHeight" data-field="gridHeight" type="number" min="120" step="10" />
+                </label>
+              </div>
+            </section>
+
+            <section class="wizard-section" data-section="output">
+              <div class="section-head">
+                <h1>출력</h1>
+                <span id="outputSummary" class="status-pill">준비됨</span>
+              </div>
+
+              <div class="file-list" aria-label="생성 파일">
+                <div class="file-row">
+                  <span>CLX</span>
+                  <strong id="clxName">sampleScreen.clx</strong>
+                  <button id="downloadClx" class="tool-button" type="button">받기</button>
+                </div>
+                <div class="file-row">
+                  <span>JS</span>
+                  <strong id="jsName">sampleScreen.js</strong>
+                  <button id="downloadJs" class="tool-button" type="button">받기</button>
+                </div>
+              </div>
+
+              <div id="validationList" class="validation-list" aria-live="polite"></div>
+            </section>
+          </form>
+        </section>
+
+        <section class="preview-panel" aria-label="생성 결과">
+          <div class="preview-toolbar">
+            <div class="preview-tabs" role="tablist" aria-label="미리보기">
+              <button class="preview-tab is-active" type="button" data-pane="clx">CLX</button>
+              <button class="preview-tab" type="button" data-pane="js">JS</button>
+              <button class="preview-tab" type="button" data-pane="mock">화면</button>
+            </div>
+            <span id="generatedAt" class="generated-at"></span>
+          </div>
+
+          <div class="preview-pane is-active" data-preview-pane="clx">
+            <pre class="code-pane"><code id="clxOutput"></code></pre>
+          </div>
+
+          <div class="preview-pane" data-preview-pane="js">
+            <pre class="code-pane"><code id="jsOutput"></code></pre>
+          </div>
+
+          <div class="preview-pane" data-preview-pane="mock">
+            <div id="screenMock" class="screen-mock"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
