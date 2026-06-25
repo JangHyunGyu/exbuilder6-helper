@@ -15,6 +15,8 @@
     activeView: "design",
     advancedMode: false,
     dragKey: "",
+    dragAddType: "",
+    resizeState: null,
     nodeMap: new Map(),
     sidIndex: 0
   };
@@ -116,12 +118,30 @@
       addComponent(button.getAttribute("data-add"));
     });
 
+    Array.prototype.slice.call(els.palette.querySelectorAll("[data-add]")).forEach(function (button) {
+      button.setAttribute("draggable", "true");
+    });
+
+    els.palette.addEventListener("dragstart", function (event) {
+      var button = event.target.closest("[data-add]");
+      if (!button) return;
+      var type = button.getAttribute("data-add");
+      state.dragAddType = type;
+      button.classList.add("is-dragging");
+      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.setData("application/x-exbuilder-add", type);
+      event.dataTransfer.setData("text/plain", "add:" + type);
+    });
+
+    els.palette.addEventListener("dragend", clearDragClasses);
+
     els.treeView.addEventListener("click", function (event) {
       var item = event.target.closest("[data-key]");
       if (item) selectNode(item.getAttribute("data-key"));
     });
 
     els.designCanvas.addEventListener("click", function (event) {
+      if (event.target.closest("[data-resize-handle]")) return;
       var node = event.target.closest("[data-key]");
       if (!node || !els.designCanvas.contains(node)) return;
       event.stopPropagation();
@@ -133,19 +153,27 @@
     });
 
     els.designCanvas.addEventListener("dragstart", function (event) {
+      if (event.target.closest("[data-resize-handle]")) {
+        event.preventDefault();
+        return;
+      }
       var node = event.target.closest("[data-key]");
       if (!node || node.getAttribute("data-key") === "0") return;
       state.dragKey = node.getAttribute("data-key");
       node.classList.add("is-dragging");
       event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("application/x-exbuilder-key", state.dragKey);
       event.dataTransfer.setData("text/plain", state.dragKey);
     });
 
     els.designCanvas.addEventListener("dragover", function (event) {
-      var node = event.target.closest("[data-key]");
-      if (!node) return;
+      if (!state.dragKey && !state.dragAddType) return;
+      var info = dropInfoFromEvent(event);
+      if (!info || !info.groupView) return;
       event.preventDefault();
-      node.classList.add("is-drop-target");
+      if (event.dataTransfer) event.dataTransfer.dropEffect = state.dragAddType ? "copy" : "move";
+      clearDropTargets();
+      info.groupView.classList.add("is-drop-target");
     });
 
     els.designCanvas.addEventListener("dragleave", function (event) {
@@ -154,15 +182,31 @@
     });
 
     els.designCanvas.addEventListener("drop", function (event) {
-      var targetView = event.target.closest("[data-key]");
-      var dragKey = event.dataTransfer.getData("text/plain") || state.dragKey;
+      var addType = event.dataTransfer.getData("application/x-exbuilder-add") || state.dragAddType;
+      var dragKey = event.dataTransfer.getData("application/x-exbuilder-key") || state.dragKey;
+      var plain = event.dataTransfer.getData("text/plain");
+      if (!addType && plain.indexOf("add:") === 0) addType = plain.slice(4);
+      if (!dragKey && plain && plain.indexOf("add:") !== 0) dragKey = plain;
+      var info = dropInfoFromEvent(event);
       clearDragClasses();
-      if (!targetView || !dragKey) return;
+      if (!info || (!addType && !dragKey)) return;
       event.preventDefault();
-      moveByDrop(dragKey, targetView.getAttribute("data-key"));
+      if (addType) {
+        addComponentAt(addType, info.group, info.row, info.col, info.rowCount, info.colCount);
+      } else {
+        moveByDrop(dragKey, info.group, info.row, info.col, info.rowCount, info.colCount);
+      }
     });
 
     els.designCanvas.addEventListener("dragend", clearDragClasses);
+
+    els.designCanvas.addEventListener("mousedown", function (event) {
+      var handle = event.target.closest("[data-resize-handle]");
+      if (!handle) return;
+      var view = handle.closest("[data-key]");
+      if (!view || view.getAttribute("data-key") === "0") return;
+      startResize(event, view.getAttribute("data-key"), view);
+    });
 
     els.deleteNode.addEventListener("click", deleteSelectedNode);
 
@@ -331,51 +375,69 @@
         applyFormData(childView, child);
         view.appendChild(childView);
       });
+      appendResizeHandle(view, key, isRoot);
       return view;
     }
 
     if (tag === "output") {
       view.textContent = xmlNode.getAttribute("value") || xmlNode.getAttribute("fieldLabel") || xmlNode.getAttribute("id") || "Label";
+      appendResizeHandle(view, key, isRoot);
       return view;
     }
 
     if (tag === "button") {
       view.textContent = xmlNode.getAttribute("value") || xmlNode.getAttribute("id") || "Button";
+      appendResizeHandle(view, key, isRoot);
       return view;
     }
 
     if (tag === "grid") {
       renderGrid(view, xmlNode);
+      appendResizeHandle(view, key, isRoot);
       return view;
     }
 
     if (tag === "textarea") {
       view.classList.add("ex-control", "ex-textarea", "muted");
       view.textContent = xmlNode.getAttribute("fieldLabel") || boundColumn(xmlNode) || "TextArea";
+      appendResizeHandle(view, key, isRoot);
       return view;
     }
 
     if (tag === "combobox") {
       view.classList.add("ex-control", "muted");
       view.textContent = (xmlNode.getAttribute("fieldLabel") || boundColumn(xmlNode) || "Combo") + "  ▾";
+      appendResizeHandle(view, key, isRoot);
       return view;
     }
 
     if (tag === "dateinput") {
       view.classList.add("ex-control", "muted");
       view.textContent = xmlNode.getAttribute("fieldLabel") || "YYYY-MM-DD";
+      appendResizeHandle(view, key, isRoot);
       return view;
     }
 
     if (tag === "inputbox") {
       view.classList.add("ex-control", "muted");
       view.textContent = xmlNode.getAttribute("fieldLabel") || boundColumn(xmlNode) || "Input";
+      appendResizeHandle(view, key, isRoot);
       return view;
     }
 
     view.className += " unknown-node";
     view.textContent = "<" + tag + ">";
+    appendResizeHandle(view, key, isRoot);
     return view;
+  }
+
+  function appendResizeHandle(view, key, isRoot) {
+    if (isRoot || state.selectedKey !== key) return;
+    var handle = document.createElement("span");
+    handle.className = "resize-handle";
+    handle.setAttribute("data-resize-handle", "true");
+    handle.setAttribute("draggable", "false");
+    view.appendChild(handle);
   }
 
   function renderGrid(view, xmlNode) {
@@ -587,11 +649,19 @@
     if (!parent || localName(parent) !== "group") parent = nearestGroup(parent) || ensureRootGroup();
 
     var row = Math.max(0, componentChildren(parent).length);
-    var fragment = componentTemplate(type, row);
+    addComponentAt(type, parent, row, 0, row + 1, 1);
+  }
+
+  function addComponentAt(type, parent, row, col, rowCount, colCount) {
+    if (!parent || localName(parent) !== "group") parent = ensureRootGroup();
+    row = Math.max(0, Number(row) || 0);
+    col = Math.max(0, Number(col) || 0);
+
+    var fragment = componentTemplate(type, row, col);
     var node = parseFragment(fragment);
     if (!node) return;
 
-    ensureGroupRows(parent, row + 1);
+    ensurePlacementGrid(parent, rowCount || row + 1, colCount || col + 1);
     var layout = directChild(parent, "formlayout");
     if (layout) parent.insertBefore(node, layout);
     else parent.appendChild(node);
@@ -621,32 +691,23 @@
       node.classList.remove("is-dragging", "is-drop-target");
     });
     state.dragKey = "";
+    state.dragAddType = "";
   }
 
-  function moveByDrop(dragKey, targetKey) {
-    if (!dragKey || !targetKey || dragKey === "0" || dragKey === targetKey) return;
+  function clearDropTargets() {
+    Array.prototype.slice.call(document.querySelectorAll(".is-drop-target")).forEach(function (node) {
+      node.classList.remove("is-drop-target");
+    });
+  }
+
+  function moveByDrop(dragKey, targetGroup, row, col, rowCount, colCount) {
+    if (!dragKey || dragKey === "0") return;
     var dragged = state.nodeMap.get(dragKey);
-    var target = state.nodeMap.get(targetKey);
-    if (!dragged || !target || dragged === ensureRootGroup()) return;
-    if (isAncestorOf(dragged, target)) return;
+    if (!dragged || dragged === ensureRootGroup() || !targetGroup || localName(targetGroup) !== "group") return;
+    if (isAncestorOf(dragged, targetGroup)) return;
 
-    if (localName(target) === "group") {
-      moveNodeToGroup(dragged, target);
-      finishMove(dragged, "선택한 항목을 영역 아래로 옮겼습니다.");
-      return;
-    }
-
-    if (dragged.parentNode === target.parentNode) {
-      swapFormData(dragged, target);
-      finishMove(dragged, "두 항목의 위치를 바꿨습니다.");
-      return;
-    }
-
-    var targetGroup = nearestGroup(target);
-    if (!targetGroup) return;
-    targetGroup.insertBefore(dragged, target);
-    copyFormData(target, dragged);
-    finishMove(dragged, "선택한 항목을 옮겼습니다.");
+    moveNodeToPlacement(dragged, targetGroup, row, col, rowCount, colCount);
+    finishMove(dragged, "선택한 항목을 놓은 위치로 옮겼습니다.");
   }
 
   function moveSelected(direction) {
@@ -671,14 +732,135 @@
   function moveNodeToGroup(node, group) {
     if (!node || !group || node === group) return;
     var row = componentChildren(group).length;
+    moveNodeToPlacement(node, group, row, 0, row + 1, 1);
+  }
+
+  function moveNodeToPlacement(node, group, row, col, rowCount, colCount) {
+    if (!node || !group || node === group) return;
+    row = Math.max(0, Number(row) || 0);
+    col = Math.max(0, Number(col) || 0);
+    ensurePlacementGrid(group, rowCount || row + 1, colCount || col + 1, node);
     var layout = directChild(group, "formlayout");
-    if (layout) group.insertBefore(node, layout);
-    else group.appendChild(node);
+    if (node.parentNode !== group) {
+      if (layout) group.insertBefore(node, layout);
+      else group.appendChild(node);
+    }
     var data = formData(node);
-    data.setAttribute("row", row);
-    data.setAttribute("col", "0");
-    ensureGroupRows(group, row + 1);
-    ensureGroupColumns(group, 1);
+    data.setAttribute("row", String(row));
+    data.setAttribute("col", String(col));
+  }
+
+  function dropInfoFromEvent(event) {
+    var targetView = event.target.closest("[data-key]");
+    if (!targetView || !els.designCanvas.contains(targetView)) targetView = nodeViewForKey("0");
+    var target = targetView ? state.nodeMap.get(targetView.getAttribute("data-key")) : null;
+    var group = target && localName(target) === "group" ? target : ownerGroup(target) || ensureRootGroup();
+    var groupKey = keyForElement(group);
+    var groupView = groupKey ? nodeViewForKey(groupKey) : null;
+    if (!groupView) return null;
+
+    var placement = placementFromPoint(group, groupView, event.clientX, event.clientY);
+    return {
+      group: group,
+      groupView: groupView,
+      row: placement.row,
+      col: placement.col,
+      rowCount: placement.rowCount,
+      colCount: placement.colCount
+    };
+  }
+
+  function placementFromPoint(group, groupView, clientX, clientY) {
+    var rect = groupView.getBoundingClientRect();
+    var style = window.getComputedStyle(groupView);
+    var left = rect.left + cssNumber(style.paddingLeft);
+    var top = rect.top + cssNumber(style.paddingTop);
+    var width = Math.max(1, rect.width - cssNumber(style.paddingLeft) - cssNumber(style.paddingRight));
+    var height = Math.max(1, rect.height - cssNumber(style.paddingTop) - cssNumber(style.paddingBottom));
+
+    var currentRows = Math.max(1, layoutTrackCount(group, "rows"));
+    var currentCols = Math.max(1, layoutTrackCount(group, "columns"));
+    var rowCount = currentRows <= 2 ? Math.max(currentRows, Math.ceil(height / 44)) : currentRows;
+    var colCount = currentCols <= 1 ? Math.max(currentCols, Math.ceil(width / 96)) : currentCols;
+
+    var x = clamp(clientX - left, 0, width - 1);
+    var y = clamp(clientY - top, 0, height - 1);
+    return {
+      row: clamp(Math.floor((y / height) * rowCount), 0, rowCount - 1),
+      col: clamp(Math.floor((x / width) * colCount), 0, colCount - 1),
+      rowCount: rowCount,
+      colCount: colCount
+    };
+  }
+
+  function ensurePlacementGrid(group, rowCount, colCount, movingNode) {
+    rowCount = Math.max(1, Number(rowCount) || 1);
+    colCount = Math.max(1, Number(colCount) || 1);
+    var beforeCols = Math.max(1, layoutTrackCount(group, "columns"));
+    ensureGroupRows(group, rowCount);
+    ensureGroupColumns(group, colCount);
+
+    if (beforeCols === 1 && colCount > 1) {
+      componentChildren(group).forEach(function (child) {
+        if (child === movingNode) return;
+        var data = formData(child);
+        if (Number(data.getAttribute("col") || 0) === 0 && !data.getAttribute("colspan")) {
+          data.setAttribute("colspan", String(colCount));
+        }
+      });
+    }
+  }
+
+  function layoutTrackCount(group, trackName) {
+    var layout = directChild(group, "formlayout");
+    return layout ? directChildren(layout, trackName).length : 0;
+  }
+
+  function nodeViewForKey(key) {
+    return els.designCanvas.querySelector('[data-key="' + String(key).replace(/"/g, '\\"') + '"]');
+  }
+
+  function startResize(event, key, view) {
+    var node = state.nodeMap.get(key);
+    if (!node) return;
+    var rect = view.getBoundingClientRect();
+    event.preventDefault();
+    event.stopPropagation();
+    state.resizeState = {
+      node: node,
+      key: key,
+      view: view,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: rect.width,
+      startHeight: rect.height
+    };
+    document.addEventListener("mousemove", resizeSelectedNode);
+    document.addEventListener("mouseup", finishResize);
+  }
+
+  function resizeSelectedNode(event) {
+    if (!state.resizeState) return;
+    var resize = state.resizeState;
+    var width = Math.max(24, Math.round(resize.startWidth + event.clientX - resize.startX));
+    var height = Math.max(24, Math.round(resize.startHeight + event.clientY - resize.startY));
+    var data = formData(resize.node);
+    data.setAttribute("width", String(width));
+    data.setAttribute("height", String(height));
+    resize.view.style.width = width + "px";
+    resize.view.style.minHeight = height + "px";
+  }
+
+  function finishResize() {
+    if (!state.resizeState) return;
+    document.removeEventListener("mousemove", resizeSelectedNode);
+    document.removeEventListener("mouseup", finishResize);
+    var node = state.resizeState.node;
+    state.resizeState = null;
+    state.selectedKey = keyForElement(node) || state.selectedKey;
+    renderAll();
+    persist();
+    showToast("크기를 조절했습니다.");
   }
 
   function swapFormData(a, b) {
@@ -712,10 +894,10 @@
     showToast(message);
   }
 
-  function componentTemplate(type, row) {
+  function componentTemplate(type, row, col) {
     var id = uniqueId(type);
     var sid = nextSid("gen");
-    var formData = '<cl:formdata std:sid="' + sid + '-fd" row="' + row + '" col="0"/>';
+    var formData = '<cl:formdata std:sid="' + sid + '-fd" row="' + row + '" col="' + col + '"/>';
     if (type === "group") {
       return '<cl:group std:sid="' + sid + '" id="' + id + '" class="box">' +
         formData +
@@ -1362,6 +1544,15 @@
   function readLength(value, fallback) {
     var parsed = parseInt(String(value || "").replace(/[^\d.-]/g, ""), 10);
     return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  function cssNumber(value) {
+    var parsed = parseFloat(String(value || "").replace(/[^\d.-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
   }
 
   function normalizeCssLength(value) {
