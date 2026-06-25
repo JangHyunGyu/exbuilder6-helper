@@ -1,41 +1,45 @@
-# 작성 메모
+# 개발 메모
 
-## 화면 프리셋
+## 목표
 
-- 조회 목록: `dmSearch`, `dsList`, `subList`, 선택된 저장/삭제 submission을 생성합니다.
-- 입력 저장: `dmForm` 중심의 입력 폼과 저장 이벤트를 생성합니다.
-- 팝업 선택: 검색 조건, 결과 그리드, 선택/닫기 버튼과 `app.close()` 반환 코드를 생성합니다.
+목표는 독립적인 웹 기반 eXBuilder6 호환 화면 편집기입니다.
 
-## 프로젝트 프로필
+사용자는 브라우저에서 새 화면을 만들거나 기존 eXBuilder6 `.clx`와 `.js`를 열고, 화면을 직접 확인하면서 수정한 뒤 다시 `.clx`와 `.js`로 내보낼 수 있어야 합니다. 기본 흐름에서는 XML이나 내부 구조를 보지 않아도 되어야 합니다.
 
-프로젝트별 차이는 `assets/js/config.js`의 `profiles`에서 관리합니다.
+## MVP 범위
 
-- `appPathPrefix`: 프로필 적용 시 앱 경로를 `{prefix}/{screenId}`로 다시 만듭니다.
-- `endpointPrefix`: `endpointPatterns`의 `{prefix}`에 들어갑니다.
-- `utilFactory`: 생성되는 JS의 공통 util 생성 함수명입니다.
-- `messages`: 저장/삭제 확인 문구, 조회 성공 메시지 코드 등을 프로필별로 덮어쓸 수 있습니다.
+현재 구현은 아래 흐름을 우선 지원합니다.
 
-## 컬럼 라인
+1. `.clx` XML 파싱
+2. 화면 루트 `cl:group` 탐색
+3. 주요 시각 컴포넌트 캔버스 렌더링
+4. 트리 기반 컴포넌트 선택
+5. 속성 패널 수정
+6. 드래그 또는 이동 버튼으로 formdata row/col 조정
+7. Grid 컬럼 편집
+8. 선택 노드 XML 직접 수정
+9. `.clx` / `.js` 내보내기
 
-```text
-컬럼명 | 라벨 | 타입 | 필수여부 | 컨트롤 | 그리드폭 | itemset | 정렬 | 읽기전용 | 최대길이
-```
+## UX 원칙
 
-- 컬럼명은 영문/숫자/언더스코어 기준으로 정규화됩니다.
-- 필수여부는 `Y`, `필수`, `true`, `1`을 필수로 인식합니다.
-- `*_YMD`, `*_DT`, `*DATE`는 `dateinput`으로 추론합니다.
-- `*_YN`, `*_CD`는 `combobox`로 추론합니다.
-- `itemset`은 `config.js`의 `codeItems` 키 또는 `값:라벨,값:라벨` 형식의 인라인 목록을 받습니다.
-- 정렬은 `left`, `center`, `right` 또는 `좌`, `가운데`, `우`를 받습니다.
-- 읽기전용은 `Y`, `true`, `1`, `읽기전용`을 받습니다.
-- 최대길이는 컨트롤의 `maxlength` attribute로 생성됩니다.
+- 기본은 쉬운 보기입니다.
+- 첫 화면에는 추가하기, 캔버스, 쉬운 속성만 둡니다.
+- 화면 구조, 데이터 모델, CLX/JS 소스, 선택 XML은 고급 보기에서만 노출합니다.
+- 컴포넌트명과 속성명은 가능한 한 한국어 작업 언어로 보여줍니다.
+- 자주 쓰는 작업은 XML이 아니라 버튼과 입력칸으로 끝나야 합니다.
 
-## 후속 보정
+## 호환성 원칙
 
-생성 후 eXBuilder6에서 실제 프로젝트 공통 요소를 붙여야 합니다.
+- CLX를 문자열 생성 결과로만 다루지 않고 XML DOM으로 유지합니다.
+- UI가 아직 모르는 노드도 DOM 안에 남겨서 export 시 보존합니다.
+- 새로 추가하는 컴포넌트는 eXBuilder6의 `cl:*`, `std:sid`, `cl:formdata`, `cl:formlayout` 구조를 따릅니다.
+- 완전 호환에 가까워지려면 실제 eXBuilder6에서 만든 다양한 CLX 샘플을 round-trip 테스트로 축적해야 합니다.
 
-- 공통 UDC 헤더/타이틀
-- 공통 코드 itemset 중 반복되는 값은 `config.js`의 `codeItems`에 먼저 등록
-- 권한별 버튼 제어
-- 공통 메시지 코드와 문구는 `config.js`의 `messages`에서 기본값 지정
-- 서버 응답 DataMap/DataSet 세부 규격
+## 다음 구현 후보
+
+- form layout row/column 시각 편집
+- grid header/detail column 편집
+- datamap/dataset/submission 편집
+- component drag and resize
+- project template import
+- JS handler 목록과 버튼 listener 연결 UI

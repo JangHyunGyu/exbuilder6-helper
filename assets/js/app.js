@@ -1,1371 +1,1340 @@
 (function () {
   "use strict";
 
-  var STORAGE_KEY = "exbuilder6-screen-wizard:v1";
-  var CONFIG = normalizeConfig(window.EX6_HELPER_CONFIG || {});
+  var CL_NS = "http://tomatosystem.co.kr/cleopatra";
+  var STD_NS = "http://tomatosystem.co.kr/cleopatra/studio";
+  var STORAGE_KEY = "exbuilder6-web-ide:v1";
+  var VISUAL_TAGS = ["group", "output", "inputbox", "combobox", "dateinput", "textarea", "button", "grid"];
 
-  var BUILTIN_DEFAULTS = {
-    projectProfile: "standard",
-    templateType: "list",
-    screenTitle: "사용자 목록",
-    screenId: "userList",
-    fileBaseName: "userList",
-    appPath: "app/sample/userList",
-    author: "",
-    screenWidth: "1280",
-    screenHeight: "620",
-    searchFields: [
-      "KEYWORD | 검색어 | string | N | inputbox",
-      "USE_YN | 사용여부 | string | N | combobox"
-    ].join("\n"),
-    dataFields: [
-      "USER_ID | 사용자 ID | string | Y | inputbox | 140",
-      "USER_NM | 사용자명 | string | Y | inputbox | 160",
-      "DEPT_NM | 부서 | string | N | inputbox | 180",
-      "USE_YN | 사용 | string | N | combobox | 80",
-      "REG_DT | 등록일 | string | N | dateinput | 110"
-    ].join("\n"),
-    endpointSearch: "/sample/selectUserList.do",
-    endpointSave: "/sample/saveUserList.do",
-    endpointDelete: "/sample/deleteUserList.do",
-    includeSearch: true,
-    includeReset: true,
-    includeAdd: true,
-    includeSave: true,
-    includeDelete: true,
-    includeCommonUtil: true,
-    controlsPerRow: "2",
-    labelWidth: "90",
-    gridHeight: "360"
+  var state = {
+    xmlDoc: null,
+    clxFileName: "newScreen.clx",
+    jsFileName: "newScreen.js",
+    jsSource: "",
+    selectedKey: "",
+    activeView: "design",
+    advancedMode: false,
+    dragKey: "",
+    nodeMap: new Map(),
+    sidIndex: 0
   };
 
-  var BUILTIN_PRESETS = {
-    list: {
-      templateType: "list",
-      screenTitle: "사용자 목록",
-      screenId: "userList",
-      fileBaseName: "userList",
-      appPath: "app/sample/userList",
-      screenWidth: "1280",
-      screenHeight: "620",
-      searchFields: [
-        "KEYWORD | 검색어 | string | N | inputbox",
-        "USE_YN | 사용여부 | string | N | combobox"
-      ].join("\n"),
-      dataFields: [
-        "USER_ID | 사용자 ID | string | Y | inputbox | 140",
-        "USER_NM | 사용자명 | string | Y | inputbox | 160",
-        "DEPT_NM | 부서 | string | N | inputbox | 180",
-        "USE_YN | 사용 | string | N | combobox | 80",
-        "REG_DT | 등록일 | string | N | dateinput | 110"
-      ].join("\n"),
-      endpointSearch: "/sample/selectUserList.do",
-      endpointSave: "/sample/saveUserList.do",
-      endpointDelete: "/sample/deleteUserList.do",
-      includeSearch: true,
-      includeReset: true,
-      includeAdd: true,
-      includeSave: true,
-      includeDelete: true,
-      controlsPerRow: "2",
-      labelWidth: "90",
-      gridHeight: "360"
-    },
-    form: {
-      templateType: "form",
-      screenTitle: "사용자 등록",
-      screenId: "userForm",
-      fileBaseName: "userForm",
-      appPath: "app/sample/userForm",
-      screenWidth: "760",
-      screenHeight: "520",
-      searchFields: "USER_ID | 사용자 ID | string | N | inputbox",
-      dataFields: [
-        "USER_ID | 사용자 ID | string | Y | inputbox | 140",
-        "USER_NM | 사용자명 | string | Y | inputbox | 180",
-        "DEPT_CD | 부서코드 | string | N | inputbox | 120",
-        "DEPT_NM | 부서명 | string | N | inputbox | 180",
-        "USE_YN | 사용여부 | string | N | combobox | 80",
-        "MEMO | 메모 | string | N | textarea | 260"
-      ].join("\n"),
-      endpointSearch: "/sample/selectUser.do",
-      endpointSave: "/sample/saveUser.do",
-      endpointDelete: "",
-      includeSearch: false,
-      includeReset: true,
-      includeAdd: false,
-      includeSave: true,
-      includeDelete: false,
-      controlsPerRow: "2",
-      labelWidth: "92",
-      gridHeight: "260"
-    },
-    popup: {
-      templateType: "popup",
-      screenTitle: "사용자 선택",
-      screenId: "userSelectPop",
-      fileBaseName: "userSelectPop",
-      appPath: "app/sample/userSelectPop",
-      screenWidth: "640",
-      screenHeight: "430",
-      searchFields: "KEYWORD | 검색어 | string | N | inputbox",
-      dataFields: [
-        "USER_ID | 사용자 ID | string | Y | inputbox | 120",
-        "USER_NM | 사용자명 | string | Y | inputbox | 160",
-        "DEPT_NM | 부서 | string | N | inputbox | 180"
-      ].join("\n"),
-      endpointSearch: "/sample/selectUserList.do",
-      endpointSave: "",
-      endpointDelete: "",
-      includeSearch: true,
-      includeReset: true,
-      includeAdd: false,
-      includeSave: false,
-      includeDelete: false,
-      controlsPerRow: "1",
-      labelWidth: "90",
-      gridHeight: "250"
-    }
-  };
-
-  var DEFAULTS = buildDefaults();
-  var PRESETS = buildPresets();
-  var state = {};
-  var generated = { clx: "", js: "" };
   var els = {};
 
   document.addEventListener("DOMContentLoaded", function () {
     bindElements();
-    populateProfileOptions();
-    state = readSavedState();
-    applyStateToForm();
     bindEvents();
-    readInitialHash();
-    render();
+    restoreOrCreate();
   });
 
   function bindElements() {
-    els.form = document.getElementById("wizardForm");
-    els.fields = Array.prototype.slice.call(document.querySelectorAll("[data-field]"));
-    els.stepTabs = Array.prototype.slice.call(document.querySelectorAll(".step-tab"));
-    els.sections = Array.prototype.slice.call(document.querySelectorAll("[data-section]"));
-    els.previewTabs = Array.prototype.slice.call(document.querySelectorAll(".preview-tab"));
-    els.previewPanes = Array.prototype.slice.call(document.querySelectorAll("[data-preview-pane]"));
-    els.clxOutput = document.getElementById("clxOutput");
-    els.jsOutput = document.getElementById("jsOutput");
-    els.screenMock = document.getElementById("screenMock");
     els.fileSummary = document.getElementById("fileSummary");
-    els.clxName = document.getElementById("clxName");
-    els.jsName = document.getElementById("jsName");
-    els.dataSummary = document.getElementById("dataSummary");
-    els.logicSummary = document.getElementById("logicSummary");
-    els.outputSummary = document.getElementById("outputSummary");
-    els.generatedAt = document.getElementById("generatedAt");
-    els.validationList = document.getElementById("validationList");
-    els.toast = document.getElementById("toast");
-    els.applyPreset = document.getElementById("applyPreset");
-    els.resetAll = document.getElementById("resetAll");
-    els.copyClx = document.getElementById("copyClx");
-    els.copyJs = document.getElementById("copyJs");
+    els.newScreen = document.getElementById("newScreen");
+    els.clxFile = document.getElementById("clxFile");
+    els.jsFile = document.getElementById("jsFile");
     els.downloadClx = document.getElementById("downloadClx");
     els.downloadJs = document.getElementById("downloadJs");
-    els.downloadAll = document.getElementById("downloadAll");
-  }
-
-  function populateProfileOptions() {
-    var profileField = document.getElementById("projectProfile");
-    if (!profileField) return;
-    var keys = getProfileKeys();
-    profileField.innerHTML = keys.map(function (key) {
-      var profile = getProjectProfile(key);
-      var label = cleanText(profile.label) || key;
-      return '<option value="' + escapeAttr(key) + '">' + escapeHtml(label) + "</option>";
-    }).join("");
+    els.toggleAdvanced = document.getElementById("toggleAdvanced");
+    els.palette = document.getElementById("palette");
+    els.treeView = document.getElementById("treeView");
+    els.modelSummary = document.getElementById("modelSummary");
+    els.deleteNode = document.getElementById("deleteNode");
+    els.viewTabs = Array.prototype.slice.call(document.querySelectorAll("[data-view]"));
+    els.viewPanes = Array.prototype.slice.call(document.querySelectorAll("[data-pane]"));
+    els.screenSize = document.getElementById("screenSize");
+    els.selectedSummary = document.getElementById("selectedSummary");
+    els.designCanvas = document.getElementById("designCanvas");
+    els.clxSource = document.getElementById("clxSource");
+    els.applyClxSource = document.getElementById("applyClxSource");
+    els.jsSource = document.getElementById("jsSource");
+    els.inspector = document.getElementById("inspector");
+    els.inspectorFields = Array.prototype.slice.call(document.querySelectorAll("[data-prop]"));
+    els.nodeType = document.getElementById("nodeType");
+    els.moveButtons = Array.prototype.slice.call(document.querySelectorAll("[data-move]"));
+    els.gridColumnPanel = document.getElementById("gridColumnPanel");
+    els.gridColumnEditor = document.getElementById("gridColumnEditor");
+    els.addGridColumn = document.getElementById("addGridColumn");
+    els.rawXml = document.getElementById("rawXml");
+    els.applyRawXml = document.getElementById("applyRawXml");
+    els.toast = document.getElementById("toast");
   }
 
   function bindEvents() {
-    els.fields.forEach(function (field) {
-      var fieldName = field.getAttribute("data-field");
-      var eventName = field.type === "checkbox" || field.tagName === "SELECT" ? "change" : "input";
-      field.addEventListener(eventName, function () {
-        state = readFormState();
-        if (fieldName === "projectProfile") {
-          state = applyProfileGeneratedValues(state);
-          applyStateToForm();
-          showToast("프로필 규칙을 적용했습니다.");
-        }
-        persistState();
-        render();
+    els.newScreen.addEventListener("click", function () {
+      if (!window.confirm("현재 화면을 버리고 새 화면을 만들까요?")) return;
+      loadClx(defaultClx(), "newScreen.clx");
+      state.jsSource = defaultJs();
+      state.jsFileName = "newScreen.js";
+      renderAll();
+      persist();
+      showToast("새 화면을 만들었습니다.");
+    });
+
+    els.clxFile.addEventListener("change", function (event) {
+      var file = event.target.files && event.target.files[0];
+      if (!file) return;
+      readFile(file, function (text) {
+        loadClx(text, file.name);
+        renderAll();
+        persist();
+        showToast(file.name + " 파일을 열었습니다.");
       });
+      event.target.value = "";
     });
 
-    els.stepTabs.forEach(function (button) {
-      button.addEventListener("click", function () {
-        setStep(button.getAttribute("data-step"), true);
+    els.jsFile.addEventListener("change", function (event) {
+      var file = event.target.files && event.target.files[0];
+      if (!file) return;
+      readFile(file, function (text) {
+        state.jsSource = text;
+        state.jsFileName = file.name;
+        renderAll();
+        persist();
+        showToast(file.name + " 파일을 열었습니다.");
       });
-    });
-
-    els.previewTabs.forEach(function (button) {
-      button.addEventListener("click", function () {
-        setPreviewPane(button.getAttribute("data-pane"));
-      });
-    });
-
-    els.applyPreset.addEventListener("click", function () {
-      var type = document.getElementById("templateType").value || "list";
-      var currentProfile = getProfileKey(state.projectProfile || DEFAULTS.projectProfile);
-      state = merge({}, DEFAULTS, PRESETS[type] || PRESETS.list, {
-        author: state.author || "",
-        projectProfile: currentProfile
-      });
-      if (currentProfile !== CONFIG.defaultProfile) {
-        state = applyProfileGeneratedValues(state);
-      }
-      applyStateToForm();
-      persistState();
-      render();
-      showToast("프리셋을 적용했습니다.");
-    });
-
-    els.resetAll.addEventListener("click", function () {
-      state = merge({}, DEFAULTS);
-      applyStateToForm();
-      persistState();
-      render();
-      showToast("초기값으로 돌렸습니다.");
-    });
-
-    els.copyClx.addEventListener("click", function () {
-      copyText(generated.clx, "CLX를 복사했습니다.");
-    });
-
-    els.copyJs.addEventListener("click", function () {
-      copyText(generated.js, "JS를 복사했습니다.");
+      event.target.value = "";
     });
 
     els.downloadClx.addEventListener("click", function () {
-      downloadFile(getFileBaseName() + ".clx", generated.clx, "text/xml;charset=utf-8");
+      downloadFile(state.clxFileName || "screen.clx", serializeClx(), "text/xml;charset=utf-8");
     });
 
     els.downloadJs.addEventListener("click", function () {
-      downloadFile(getFileBaseName() + ".js", generated.js, "text/javascript;charset=utf-8");
+      state.jsSource = els.jsSource.value;
+      downloadFile(state.jsFileName || baseName(state.clxFileName) + ".js", state.jsSource, "text/javascript;charset=utf-8");
     });
 
-    els.downloadAll.addEventListener("click", function () {
-      downloadFile(getFileBaseName() + ".clx", generated.clx, "text/xml;charset=utf-8");
-      window.setTimeout(function () {
-        downloadFile(getFileBaseName() + ".js", generated.js, "text/javascript;charset=utf-8");
-      }, 120);
+    els.toggleAdvanced.addEventListener("click", function () {
+      setAdvancedMode(!state.advancedMode);
+      persist();
+      showToast(state.advancedMode ? "고급 보기를 켰습니다." : "쉬운 보기로 돌아왔습니다.");
     });
 
-    window.addEventListener("hashchange", readInitialHash);
+    els.palette.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-add]");
+      if (!button) return;
+      addComponent(button.getAttribute("data-add"));
+    });
+
+    els.treeView.addEventListener("click", function (event) {
+      var item = event.target.closest("[data-key]");
+      if (item) selectNode(item.getAttribute("data-key"));
+    });
+
+    els.designCanvas.addEventListener("click", function (event) {
+      var node = event.target.closest("[data-key]");
+      if (!node || !els.designCanvas.contains(node)) return;
+      event.stopPropagation();
+      selectNode(node.getAttribute("data-key"));
+    });
+
+    els.designCanvas.addEventListener("click", function (event) {
+      if (event.target === els.designCanvas) selectNode("");
+    });
+
+    els.designCanvas.addEventListener("dragstart", function (event) {
+      var node = event.target.closest("[data-key]");
+      if (!node || node.getAttribute("data-key") === "0") return;
+      state.dragKey = node.getAttribute("data-key");
+      node.classList.add("is-dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", state.dragKey);
+    });
+
+    els.designCanvas.addEventListener("dragover", function (event) {
+      var node = event.target.closest("[data-key]");
+      if (!node) return;
+      event.preventDefault();
+      node.classList.add("is-drop-target");
+    });
+
+    els.designCanvas.addEventListener("dragleave", function (event) {
+      var node = event.target.closest("[data-key]");
+      if (node) node.classList.remove("is-drop-target");
+    });
+
+    els.designCanvas.addEventListener("drop", function (event) {
+      var targetView = event.target.closest("[data-key]");
+      var dragKey = event.dataTransfer.getData("text/plain") || state.dragKey;
+      clearDragClasses();
+      if (!targetView || !dragKey) return;
+      event.preventDefault();
+      moveByDrop(dragKey, targetView.getAttribute("data-key"));
+    });
+
+    els.designCanvas.addEventListener("dragend", clearDragClasses);
+
+    els.deleteNode.addEventListener("click", deleteSelectedNode);
+
+    els.viewTabs.forEach(function (button) {
+      button.addEventListener("click", function () {
+        setView(button.getAttribute("data-view"));
+      });
+    });
+
+    els.applyClxSource.addEventListener("click", function () {
+      loadClx(els.clxSource.value, state.clxFileName);
+      renderAll();
+      persist();
+      showToast("CLX 소스를 적용했습니다.");
+    });
+
+    els.jsSource.addEventListener("input", function () {
+      state.jsSource = els.jsSource.value;
+      persist();
+    });
+
+    els.inspectorFields.forEach(function (field) {
+      field.addEventListener("input", function () {
+        updateSelectedProperty(field.getAttribute("data-prop"), field.value);
+      });
+    });
+
+    els.moveButtons.forEach(function (button) {
+      button.addEventListener("click", function () {
+        moveSelected(button.getAttribute("data-move"));
+      });
+    });
+
+    els.addGridColumn.addEventListener("click", addGridColumn);
+
+    els.gridColumnEditor.addEventListener("input", function (event) {
+      var input = event.target.closest("[data-grid-prop]");
+      if (!input) return;
+      updateGridColumn(Number(input.getAttribute("data-grid-index")), input.getAttribute("data-grid-prop"), input.value);
+    });
+
+    els.gridColumnEditor.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-grid-remove]");
+      if (!button) return;
+      removeGridColumn(Number(button.getAttribute("data-grid-remove")));
+    });
+
+    els.applyRawXml.addEventListener("click", applyRawXml);
   }
 
-  function readSavedState() {
+  function restoreOrCreate() {
+    var restored = false;
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return normalizeState(merge({}, DEFAULTS, JSON.parse(raw)));
-    } catch (error) {}
-    return normalizeState(merge({}, DEFAULTS));
-  }
-
-  function persistState() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (error) {}
-  }
-
-  function applyStateToForm() {
-    els.fields.forEach(function (field) {
-      var name = field.getAttribute("data-field");
-      if (!(name in state)) return;
-      if (field.type === "checkbox") {
-        field.checked = !!state[name];
-      } else {
-        field.value = state[name] == null ? "" : state[name];
+      if (raw) {
+        var saved = JSON.parse(raw);
+        if (saved && saved.clx) {
+          loadClx(saved.clx, saved.clxFileName || "newScreen.clx");
+          state.jsSource = saved.jsSource || defaultJs();
+          state.jsFileName = saved.jsFileName || baseName(state.clxFileName) + ".js";
+          state.advancedMode = !!saved.advancedMode;
+          restored = true;
+        }
       }
-    });
-  }
+    } catch (error) {}
 
-  function readFormState() {
-    var next = merge({}, state);
-    els.fields.forEach(function (field) {
-      var name = field.getAttribute("data-field");
-      next[name] = field.type === "checkbox" ? field.checked : field.value;
-    });
-    return next;
-  }
-
-  function readInitialHash() {
-    var step = String(window.location.hash || "").replace("#", "");
-    if (["screen", "data", "logic", "output"].indexOf(step) >= 0) {
-      setStep(step, false);
+    if (!restored) {
+      loadClx(defaultClx(), "newScreen.clx");
+      state.jsSource = defaultJs();
+      state.jsFileName = "newScreen.js";
     }
+    renderAll();
   }
 
-  function setStep(step, pushHash) {
-    els.stepTabs.forEach(function (button) {
-      button.classList.toggle("is-active", button.getAttribute("data-step") === step);
-    });
-    els.sections.forEach(function (section) {
-      section.classList.toggle("is-active", section.getAttribute("data-section") === step);
-    });
-    if (pushHash) {
-      history.replaceState(null, "", "#" + step);
-    }
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        clx: serializeClx(false),
+        clxFileName: state.clxFileName,
+        jsSource: state.jsSource,
+        jsFileName: state.jsFileName,
+        advancedMode: state.advancedMode
+      }));
+    } catch (error) {}
   }
 
-  function setPreviewPane(name) {
-    els.previewTabs.forEach(function (button) {
-      button.classList.toggle("is-active", button.getAttribute("data-pane") === name);
-    });
-    els.previewPanes.forEach(function (pane) {
-      pane.classList.toggle("is-active", pane.getAttribute("data-preview-pane") === name);
-    });
-  }
-
-  function render() {
-    var normalized = normalizeState(state);
-    var parsed = {
-      searchFields: parseFields(normalized.searchFields),
-      dataFields: parseFields(normalized.dataFields)
+  function readFile(file, callback) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      callback(String(reader.result || ""));
     };
-    var warnings = validateState(normalized, parsed);
-
-    generated.clx = generateClx(normalized, parsed);
-    generated.js = generateJs(normalized, parsed);
-
-    var baseName = getFileBaseName(normalized);
-    els.clxOutput.textContent = generated.clx;
-    els.jsOutput.textContent = generated.js;
-    els.clxName.textContent = baseName + ".clx";
-    els.jsName.textContent = baseName + ".js";
-    els.fileSummary.textContent = baseName + ".clx / " + baseName + ".js";
-    els.dataSummary.textContent = parsed.searchFields.length + " 조건 / " + parsed.dataFields.length + " 컬럼";
-    els.logicSummary.textContent = summarizeLogic(normalized);
-    els.outputSummary.textContent = warnings.some(function (item) { return item.type === "error"; }) ? "확인 필요" : "준비됨";
-    els.generatedAt.textContent = formatTime(new Date());
-    renderValidation(warnings);
-    renderMock(normalized, parsed);
+    reader.readAsText(file, "utf-8");
   }
 
-  function normalizeState(input) {
-    var base = merge({}, DEFAULTS, input || {});
-    var profileKey = getProfileKey(base.projectProfile);
-    var profile = getProjectProfile(profileKey);
-    var next = merge({}, DEFAULTS, profile.defaults || {}, input || {}, {
-      projectProfile: profileKey
+  function loadClx(text, fileName) {
+    var previousClxFileName = state.clxFileName;
+    var shouldFollowClxName = !state.jsFileName || state.jsFileName === "newScreen.js" || state.jsFileName === baseName(previousClxFileName) + ".js";
+    var parser = new DOMParser();
+    var doc = parser.parseFromString(String(text || ""), "application/xml");
+    var error = doc.getElementsByTagName("parsererror")[0];
+    if (error) {
+      showToast("CLX XML을 읽지 못했습니다.");
+      throw new Error(error.textContent || "Invalid XML");
+    }
+    state.xmlDoc = doc;
+    state.clxFileName = sanitizeFileName(fileName || state.clxFileName || "screen.clx", "screen.clx");
+    if (shouldFollowClxName) state.jsFileName = baseName(state.clxFileName) + ".js";
+    ensureRootGroup();
+    state.selectedKey = "";
+  }
+
+  function renderAll() {
+    if (!state.xmlDoc) return;
+    setAdvancedMode(state.advancedMode, true);
+    state.nodeMap = new Map();
+    renderCanvas();
+    renderTree();
+    renderModelSummary();
+    renderInspector();
+    renderGridColumnEditor();
+    renderSources();
+    renderHeader();
+  }
+
+  function renderHeader() {
+    els.fileSummary.textContent = (state.clxFileName || "screen.clx") + " / " + (state.jsFileName || "screen.js");
+    var screen = getDefaultScreen();
+    var width = readLength(screen && (screen.getAttribute("width") || screen.getAttribute("minwidth")), 1280);
+    var height = readLength(screen && screen.getAttribute("height"), 720);
+    els.screenSize.textContent = width + " x " + height;
+    var selected = selectedElement();
+    els.selectedSummary.textContent = selected ? describeNode(selected) : "선택 없음";
+  }
+
+  function renderCanvas() {
+    var root = ensureRootGroup();
+    var screen = getDefaultScreen();
+    var width = readLength(screen && (screen.getAttribute("width") || screen.getAttribute("minwidth")), 1280);
+    var height = readLength(screen && screen.getAttribute("height"), 720);
+    els.designCanvas.style.width = width + "px";
+    els.designCanvas.style.minHeight = height + "px";
+    els.designCanvas.innerHTML = "";
+    els.designCanvas.appendChild(renderElement(root, "0", true));
+  }
+
+  function renderElement(xmlNode, key, isRoot) {
+    state.nodeMap.set(key, xmlNode);
+
+    var tag = localName(xmlNode);
+    var view = document.createElement("div");
+    view.className = "ex-node ex-" + tag + (state.selectedKey === key ? " is-selected" : "");
+    view.setAttribute("data-key", key);
+    if (!isRoot) view.setAttribute("draggable", "true");
+
+    if (tag === "group") {
+      view.setAttribute("data-label", describeNode(xmlNode));
+      applyGroupLayout(view, xmlNode);
+      if (isRoot) {
+        view.style.border = "0";
+        view.style.borderRadius = "0";
+        view.style.minHeight = "100%";
+      }
+      componentChildren(xmlNode).forEach(function (child, index) {
+        var childKey = key + "." + index;
+        var childView = renderElement(child, childKey, false);
+        applyFormData(childView, child);
+        view.appendChild(childView);
+      });
+      return view;
+    }
+
+    if (tag === "output") {
+      view.textContent = xmlNode.getAttribute("value") || xmlNode.getAttribute("fieldLabel") || xmlNode.getAttribute("id") || "Label";
+      return view;
+    }
+
+    if (tag === "button") {
+      view.textContent = xmlNode.getAttribute("value") || xmlNode.getAttribute("id") || "Button";
+      return view;
+    }
+
+    if (tag === "grid") {
+      renderGrid(view, xmlNode);
+      return view;
+    }
+
+    if (tag === "textarea") {
+      view.classList.add("ex-control", "ex-textarea", "muted");
+      view.textContent = xmlNode.getAttribute("fieldLabel") || boundColumn(xmlNode) || "TextArea";
+      return view;
+    }
+
+    if (tag === "combobox") {
+      view.classList.add("ex-control", "muted");
+      view.textContent = (xmlNode.getAttribute("fieldLabel") || boundColumn(xmlNode) || "Combo") + "  ▾";
+      return view;
+    }
+
+    if (tag === "dateinput") {
+      view.classList.add("ex-control", "muted");
+      view.textContent = xmlNode.getAttribute("fieldLabel") || "YYYY-MM-DD";
+      return view;
+    }
+
+    if (tag === "inputbox") {
+      view.classList.add("ex-control", "muted");
+      view.textContent = xmlNode.getAttribute("fieldLabel") || boundColumn(xmlNode) || "Input";
+      return view;
+    }
+
+    view.className += " unknown-node";
+    view.textContent = "<" + tag + ">";
+    return view;
+  }
+
+  function renderGrid(view, xmlNode) {
+    view.innerHTML = "";
+    var headers = gridHeaders(xmlNode);
+    if (!headers.length) headers = datasetColumns(xmlNode.getAttribute("datasetid")).slice(0, 4);
+    if (!headers.length) headers = ["Column1", "Column2", "Column3"];
+
+    var head = document.createElement("div");
+    head.className = "ex-grid-head";
+    headers.forEach(function (header) {
+      var span = document.createElement("span");
+      span.textContent = header;
+      head.appendChild(span);
     });
-    next.templateType = PRESETS[next.templateType] ? next.templateType : "list";
-    next.screenTitle = cleanText(next.screenTitle) || "새 화면";
-    next.screenId = sanitizeIdentifier(next.screenId || toCamel(next.screenTitle) || "sampleScreen", "sampleScreen");
-    next.fileBaseName = sanitizeFileName(next.fileBaseName || next.screenId || "sampleScreen");
-    next.appPath = cleanText(next.appPath) || buildAppPath(next, profile);
-    next.screenWidth = String(clampInt(next.screenWidth, 320, 3000, 1280));
-    next.screenHeight = String(clampInt(next.screenHeight, 240, 2200, 620));
-    next.controlsPerRow = String(clampInt(next.controlsPerRow, 1, 4, 2));
-    next.labelWidth = String(clampInt(next.labelWidth, 50, 180, 90));
-    next.gridHeight = String(clampInt(next.gridHeight, 120, 1200, 360));
-    next.utilFactory = cleanText(profile.utilFactory || CONFIG.utilFactory || "createCommonUtil");
-    next.messages = merge({}, CONFIG.messages, profile.messages || {});
-    return next;
+    view.appendChild(head);
+
+    for (var row = 0; row < 4; row++) {
+      var rowEl = document.createElement("div");
+      rowEl.className = "ex-grid-row";
+      headers.forEach(function () {
+        rowEl.appendChild(document.createElement("span"));
+      });
+      view.appendChild(rowEl);
+    }
   }
 
-  function applyProfileGeneratedValues(input) {
-    var next = normalizeState(input);
-    var profile = getProjectProfile(next.projectProfile);
-    next.appPath = buildAppPath(next, profile);
-    if (cleanText(CONFIG.endpointPatterns.search)) {
-      next.endpointSearch = buildEndpoint(CONFIG.endpointPatterns.search, next, profile);
-    }
-    if (cleanText(CONFIG.endpointPatterns.save)) {
-      next.endpointSave = buildEndpoint(CONFIG.endpointPatterns.save, next, profile);
-    }
-    if (cleanText(CONFIG.endpointPatterns.delete)) {
-      next.endpointDelete = buildEndpoint(CONFIG.endpointPatterns.delete, next, profile);
-    }
-    return normalizeState(next);
-  }
-
-  function buildAppPath(model, profile) {
-    var prefix = cleanPath(profile.appPathPrefix || CONFIG.appPathPrefix || "app/sample");
-    return prefix + "/" + sanitizeIdentifier(model.screenId || "sampleScreen", "sampleScreen");
-  }
-
-  function buildEndpoint(pattern, model, profile) {
-    var screenId = sanitizeIdentifier(model.screenId || "sampleScreen", "sampleScreen");
-    var replacements = {
-      prefix: cleanEndpointPrefix(profile.endpointPrefix || ""),
-      screenId: screenId,
-      ScreenId: toPascal(screenId),
-      fileBaseName: sanitizeFileName(model.fileBaseName || screenId),
-      appPath: cleanText(model.appPath)
-    };
-    return String(pattern || "").replace(/\{([^}]+)\}/g, function (match, key) {
-      return Object.prototype.hasOwnProperty.call(replacements, key) ? replacements[key] : match;
+  function renderTree() {
+    var root = ensureRootGroup();
+    var rows = [];
+    collectTree(root, "0", 0, rows);
+    els.treeView.innerHTML = "";
+    rows.forEach(function (row) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "tree-item" + (row.key === state.selectedKey ? " is-selected" : "");
+      button.style.paddingLeft = 7 + row.depth * 16 + "px";
+      button.setAttribute("data-key", row.key);
+      button.innerHTML = '<span class="tag">' + escapeHtml(row.tag) + '</span><span class="name">' + escapeHtml(row.name) + "</span>";
+      els.treeView.appendChild(button);
     });
   }
 
-  function validateState(model, parsed) {
+  function collectTree(node, key, depth, rows) {
+    state.nodeMap.set(key, node);
+    rows.push({ key: key, depth: depth, tag: localName(node), name: describeNode(node) });
+    componentChildren(node).forEach(function (child, index) {
+      collectTree(child, key + "." + index, depth + 1, rows);
+    });
+  }
+
+  function renderModelSummary() {
     var items = [];
-    if (!parsed.dataFields.length) {
-      items.push({ type: "error", text: "목록/입력 컬럼이 필요합니다." });
-    }
-    if (model.includeSearch && !cleanText(model.endpointSearch) && model.templateType !== "form") {
-      items.push({ type: "warn", text: "조회 URL이 비어 있습니다." });
-    }
-    if (model.includeSave && !cleanText(model.endpointSave)) {
-      items.push({ type: "warn", text: "저장 URL이 비어 있습니다." });
-    }
-    if (model.includeDelete && !cleanText(model.endpointDelete)) {
-      items.push({ type: "warn", text: "삭제 URL이 비어 있습니다." });
-    }
-    if (!items.length) {
-      items.push({ type: "ok", text: "생성 준비가 끝났습니다." });
-    }
-    return items;
+    getByLocalName("datamap").forEach(function (node) {
+      items.push({ type: "DataMap", id: node.getAttribute("id"), count: getChildrenByLocalName(node, "datacolumn").length });
+    });
+    getByLocalName("dataset").forEach(function (node) {
+      items.push({ type: "DataSet", id: node.getAttribute("id"), count: getChildrenByLocalName(node, "datacolumn").length });
+    });
+    getByLocalName("submission").forEach(function (node) {
+      items.push({ type: "Submission", id: node.getAttribute("id"), action: node.getAttribute("action") });
+    });
+
+    els.modelSummary.innerHTML = items.length ? items.map(function (item) {
+      var detail = item.action || (item.count + " columns");
+      return '<div class="model-chip"><strong>' + escapeHtml(item.type + " " + (item.id || "")) + '</strong><span>' + escapeHtml(detail) + "</span></div>";
+    }).join("") : '<div class="model-chip"><strong>모델 없음</strong><span>CLX의 model 영역을 읽지 못했습니다.</span></div>';
   }
 
-  function renderValidation(items) {
-    els.validationList.innerHTML = items.map(function (item) {
-      return '<div class="validation-item ' + escapeAttr(item.type) + '">' + escapeHtml(item.text) + "</div>";
+  function renderInspector() {
+    var node = selectedElement();
+    var disabled = !node;
+    els.nodeType.textContent = node ? localName(node) : "없음";
+    els.inspectorFields.forEach(function (field) {
+      field.disabled = disabled;
+      field.value = node ? readProperty(node, field.getAttribute("data-prop")) : "";
+    });
+    els.rawXml.value = node ? prettyXml(new XMLSerializer().serializeToString(node)) : "";
+    els.rawXml.disabled = disabled;
+    els.applyRawXml.disabled = disabled;
+    els.deleteNode.disabled = !node || node === ensureRootGroup();
+  }
+
+  function renderGridColumnEditor() {
+    var node = selectedElement();
+    var isGrid = node && localName(node) === "grid";
+    els.gridColumnPanel.classList.toggle("is-visible", !!isGrid);
+    if (!isGrid) {
+      els.gridColumnEditor.innerHTML = "";
+      return;
+    }
+
+    els.gridColumnEditor.innerHTML = gridColumnModels(node).map(function (column, index) {
+      return [
+        '<div class="grid-column-row">',
+        '  <label><span>제목</span><input data-grid-index="' + index + '" data-grid-prop="label" value="' + escapeHtml(column.label) + '"></label>',
+        '  <label><span>컬럼</span><input data-grid-index="' + index + '" data-grid-prop="field" value="' + escapeHtml(column.field) + '"></label>',
+        '  <label><span>너비</span><input data-grid-index="' + index + '" data-grid-prop="width" value="' + escapeHtml(column.width) + '"></label>',
+        '  <button type="button" data-grid-remove="' + index + '">×</button>',
+        '</div>'
+      ].join("");
     }).join("");
   }
 
-  function renderMock(model, parsed) {
-    var dataFields = parsed.dataFields.slice(0, 6);
-    var searchFields = parsed.searchFields.slice(0, 6);
-    var typeLabel = { list: "조회 목록", form: "입력 저장", popup: "팝업 선택" }[model.templateType] || "화면";
-    var body = [];
-
-    body.push('<div class="mock-window">');
-    body.push('<div class="mock-titlebar"><strong>' + escapeHtml(model.screenTitle) + '</strong><span class="mock-badge">' + escapeHtml(typeLabel) + '</span></div>');
-    body.push('<div class="mock-body">');
-
-    if (model.templateType !== "form" && model.includeSearch) {
-      body.push('<div class="mock-search">');
-      searchFields.forEach(function (field) {
-        body.push('<div class="mock-field"><span>' + escapeHtml(field.label) + '</span><div class="mock-input"></div></div>');
-      });
-      if (!searchFields.length) {
-        body.push('<div class="mock-field"><span>검색어</span><div class="mock-input"></div></div>');
-      }
-      body.push('</div>');
+  function renderSources() {
+    if (document.activeElement !== els.clxSource) {
+      els.clxSource.value = serializeClx();
     }
-
-    if (model.templateType === "form") {
-      body.push('<div class="mock-form">');
-      dataFields.forEach(function (field) {
-        body.push('<div class="mock-field"><span>' + escapeHtml(field.label) + '</span><div class="mock-input"></div></div>');
-      });
-      body.push('</div>');
-    } else {
-      body.push('<div class="mock-grid"><div class="mock-grid-head">');
-      dataFields.forEach(function (field) {
-        body.push('<span>' + escapeHtml(field.label) + '</span>');
-      });
-      body.push('</div>');
-      for (var row = 0; row < 5; row++) {
-        body.push('<div class="mock-grid-row">');
-        dataFields.forEach(function () {
-          body.push('<span></span>');
-        });
-        body.push('</div>');
-      }
-      body.push('</div>');
+    if (document.activeElement !== els.jsSource) {
+      els.jsSource.value = state.jsSource || "";
     }
-
-    body.push('<div class="mock-buttons">');
-    if (model.includeReset) body.push('<span class="mock-button secondary">초기화</span>');
-    if (model.includeSearch && model.templateType !== "form") body.push('<span class="mock-button">조회</span>');
-    if (model.templateType === "popup") {
-      body.push('<span class="mock-button">선택</span>');
-      body.push('<span class="mock-button secondary">닫기</span>');
-    } else {
-      if (model.includeAdd) body.push('<span class="mock-button secondary">추가</span>');
-      if (model.includeDelete) body.push('<span class="mock-button secondary">삭제</span>');
-      if (model.includeSave) body.push('<span class="mock-button">저장</span>');
-    }
-    body.push('</div></div></div>');
-    els.screenMock.innerHTML = body.join("");
   }
 
-  function parseFields(value) {
-    return String(value || "").split(/\r?\n/).map(function (line, index) {
-      return parseFieldLine(line, index);
+  function setView(viewName) {
+    if (!state.advancedMode && viewName !== "design") viewName = "design";
+    state.activeView = viewName;
+    els.viewTabs.forEach(function (tab) {
+      tab.classList.toggle("is-active", tab.getAttribute("data-view") === viewName);
+    });
+    els.viewPanes.forEach(function (pane) {
+      pane.classList.toggle("is-active", pane.getAttribute("data-pane") === viewName);
+    });
+    renderSources();
+  }
+
+  function setAdvancedMode(enabled, silent) {
+    state.advancedMode = !!enabled;
+    document.body.classList.toggle("advanced-mode", state.advancedMode);
+    els.toggleAdvanced.classList.toggle("is-active", state.advancedMode);
+    els.toggleAdvanced.setAttribute("aria-pressed", state.advancedMode ? "true" : "false");
+    els.toggleAdvanced.textContent = state.advancedMode ? "쉬운 보기" : "고급 보기";
+    if (!state.advancedMode && state.activeView !== "design") {
+      setView("design");
+    }
+    if (!silent) renderAll();
+  }
+
+  function selectNode(key) {
+    state.selectedKey = key || "";
+    renderAll();
+  }
+
+  function selectedElement() {
+    return state.selectedKey ? state.nodeMap.get(state.selectedKey) || null : null;
+  }
+
+  function updateSelectedProperty(prop, value) {
+    var node = selectedElement();
+    if (!node) return;
+
+    if (prop === "bindColumn") {
+      setBoundColumn(node, value);
+    } else if (prop === "row" || prop === "col" || prop === "rowspan" || prop === "colspan" || prop === "width" || prop === "height") {
+      setFormDataAttr(node, prop, value);
+    } else if (prop === "handler") {
+      setClickHandler(node, value);
+    } else if (prop === "value") {
+      if (localName(node) === "button" || localName(node) === "output") node.setAttribute("value", value);
+      else node.setAttribute("fieldLabel", value);
+    } else if (prop === "fieldLabel") {
+      node.setAttribute("fieldLabel", value);
+    } else if (prop === "datasetid") {
+      node.setAttribute("datasetid", value);
+    } else if (prop === "id" || prop === "class") {
+      if (value) node.setAttribute(prop, value);
+      else node.removeAttribute(prop);
+    }
+
+    refreshPreviewAfterEdit();
+    persist();
+  }
+
+  function refreshPreviewAfterEdit() {
+    state.nodeMap = new Map();
+    renderCanvas();
+    renderTree();
+    renderModelSummary();
+    renderSources();
+    renderHeader();
+  }
+
+  function readProperty(node, prop) {
+    if (prop === "bindColumn") return boundColumn(node);
+    if (prop === "handler") return clickHandler(node);
+    if (prop === "row" || prop === "col" || prop === "rowspan" || prop === "colspan" || prop === "width" || prop === "height") {
+      return formData(node).getAttribute(prop) || "";
+    }
+    if (prop === "value") return node.getAttribute("value") || node.getAttribute("fieldLabel") || "";
+    if (prop === "fieldLabel") return node.getAttribute("fieldLabel") || "";
+    return node.getAttribute(prop) || "";
+  }
+
+  function applyRawXml() {
+    var node = selectedElement();
+    if (!node) return;
+    var replacement = parseFragment(els.rawXml.value);
+    if (!replacement) {
+      showToast("선택 XML을 읽지 못했습니다.");
+      return;
+    }
+    node.parentNode.replaceChild(replacement, node);
+    renderAll();
+    persist();
+    showToast("선택 XML을 적용했습니다.");
+  }
+
+  function addComponent(type) {
+    var parent = selectedElement();
+    if (!parent || localName(parent) !== "group") parent = nearestGroup(parent) || ensureRootGroup();
+
+    var row = Math.max(0, componentChildren(parent).length);
+    var fragment = componentTemplate(type, row);
+    var node = parseFragment(fragment);
+    if (!node) return;
+
+    ensureGroupRows(parent, row + 1);
+    var layout = directChild(parent, "formlayout");
+    if (layout) parent.insertBefore(node, layout);
+    else parent.appendChild(node);
+
+    if (type === "button") addJsHandler(clickHandler(node));
+
+    renderAll();
+    var newKey = keyForElement(node);
+    if (newKey) selectNode(newKey);
+    persist();
+    showToast(type + " 컴포넌트를 추가했습니다.");
+  }
+
+  function deleteSelectedNode() {
+    var node = selectedElement();
+    if (!node || node === ensureRootGroup()) return;
+    var parent = node.parentNode;
+    parent.removeChild(node);
+    state.selectedKey = "";
+    renderAll();
+    persist();
+    showToast("선택한 컴포넌트를 삭제했습니다.");
+  }
+
+  function clearDragClasses() {
+    Array.prototype.slice.call(document.querySelectorAll(".is-dragging, .is-drop-target")).forEach(function (node) {
+      node.classList.remove("is-dragging", "is-drop-target");
+    });
+    state.dragKey = "";
+  }
+
+  function moveByDrop(dragKey, targetKey) {
+    if (!dragKey || !targetKey || dragKey === "0" || dragKey === targetKey) return;
+    var dragged = state.nodeMap.get(dragKey);
+    var target = state.nodeMap.get(targetKey);
+    if (!dragged || !target || dragged === ensureRootGroup()) return;
+    if (isAncestorOf(dragged, target)) return;
+
+    if (localName(target) === "group") {
+      moveNodeToGroup(dragged, target);
+      finishMove(dragged, "선택한 항목을 영역 아래로 옮겼습니다.");
+      return;
+    }
+
+    if (dragged.parentNode === target.parentNode) {
+      swapFormData(dragged, target);
+      finishMove(dragged, "두 항목의 위치를 바꿨습니다.");
+      return;
+    }
+
+    var targetGroup = nearestGroup(target);
+    if (!targetGroup) return;
+    targetGroup.insertBefore(dragged, target);
+    copyFormData(target, dragged);
+    finishMove(dragged, "선택한 항목을 옮겼습니다.");
+  }
+
+  function moveSelected(direction) {
+    var node = selectedElement();
+    if (!node || node === ensureRootGroup()) return;
+    var data = formData(node);
+    var row = Number(data.getAttribute("row") || 0);
+    var col = Number(data.getAttribute("col") || 0);
+
+    if (direction === "up") row = Math.max(0, row - 1);
+    if (direction === "down") row += 1;
+    if (direction === "left") col = Math.max(0, col - 1);
+    if (direction === "right") col += 1;
+
+    data.setAttribute("row", row);
+    data.setAttribute("col", col);
+    ensureGroupRows(ownerGroup(node), row + 1);
+    ensureGroupColumns(ownerGroup(node), col + 1);
+    finishMove(node, "위치를 조정했습니다.");
+  }
+
+  function moveNodeToGroup(node, group) {
+    if (!node || !group || node === group) return;
+    var row = componentChildren(group).length;
+    var layout = directChild(group, "formlayout");
+    if (layout) group.insertBefore(node, layout);
+    else group.appendChild(node);
+    var data = formData(node);
+    data.setAttribute("row", row);
+    data.setAttribute("col", "0");
+    ensureGroupRows(group, row + 1);
+    ensureGroupColumns(group, 1);
+  }
+
+  function swapFormData(a, b) {
+    var aData = formData(a);
+    var bData = formData(b);
+    ["row", "col", "rowspan", "colspan", "width", "height"].forEach(function (attr) {
+      var aValue = aData.getAttribute(attr);
+      var bValue = bData.getAttribute(attr);
+      if (bValue == null) aData.removeAttribute(attr);
+      else aData.setAttribute(attr, bValue);
+      if (aValue == null) bData.removeAttribute(attr);
+      else bData.setAttribute(attr, aValue);
+    });
+  }
+
+  function copyFormData(source, target) {
+    var sourceData = formData(source);
+    var targetData = formData(target);
+    ["row", "col", "rowspan", "colspan", "width", "height"].forEach(function (attr) {
+      var value = sourceData.getAttribute(attr);
+      if (value == null) targetData.removeAttribute(attr);
+      else targetData.setAttribute(attr, value);
+    });
+  }
+
+  function finishMove(node, message) {
+    renderAll();
+    state.selectedKey = keyForElement(node) || "";
+    renderAll();
+    persist();
+    showToast(message);
+  }
+
+  function componentTemplate(type, row) {
+    var id = uniqueId(type);
+    var sid = nextSid("gen");
+    var formData = '<cl:formdata std:sid="' + sid + '-fd" row="' + row + '" col="0"/>';
+    if (type === "group") {
+      return '<cl:group std:sid="' + sid + '" id="' + id + '" class="box">' +
+        formData +
+        '<cl:formlayout std:sid="' + sid + '-layout" scrollable="false" hspace="8px" vspace="8px">' +
+        '<cl:rows length="40" unit="PIXEL"/><cl:columns length="1" unit="FRACTION"/>' +
+        '</cl:formlayout></cl:group>';
+    }
+    if (type === "output") {
+      return '<cl:output std:sid="' + sid + '" id="' + id + '" value="라벨">' + formData + '</cl:output>';
+    }
+    if (type === "inputbox") {
+      return '<cl:inputbox std:sid="' + sid + '" id="' + id + '" fieldLabel="입력">' +
+        '<cl:relativebind property="value" columnname="COLUMN1"/>' + formData + '</cl:inputbox>';
+    }
+    if (type === "combobox") {
+      return '<cl:combobox std:sid="' + sid + '" id="' + id + '" fieldLabel="선택" preventinput="true">' +
+        '<cl:relativebind property="value" columnname="COLUMN1"/>' + formData +
+        '<cl:item std:sid="' + sid + '-item1" label="선택" value=""/><cl:item std:sid="' + sid + '-item2" label="Y" value="Y"/><cl:item std:sid="' + sid + '-item3" label="N" value="N"/>' +
+        '</cl:combobox>';
+    }
+    if (type === "dateinput") {
+      return '<cl:dateinput std:sid="' + sid + '" id="' + id + '" fieldLabel="날짜" mask="YYYY-MM-DD" format="YYYYMMDD">' +
+        '<cl:relativebind property="value" columnname="DATE_COLUMN"/>' + formData + '</cl:dateinput>';
+    }
+    if (type === "textarea") {
+      return '<cl:textarea std:sid="' + sid + '" id="' + id + '" fieldLabel="메모">' +
+        '<cl:relativebind property="value" columnname="MEMO"/>' + formData.replace("/>", ' height="80"/>') + '</cl:textarea>';
+    }
+    if (type === "button") {
+      var handler = "on" + toPascal(id) + "Click";
+      return '<cl:button std:sid="' + sid + '" id="' + id + '" value="버튼">' +
+        '<cl:listener std:sid="' + sid + '-listener" name="click" handler="' + handler + '"/>' +
+        formData.replace("/>", ' width="90" height="30"/>') + '</cl:button>';
+    }
+    if (type === "grid") {
+      return '<cl:grid std:sid="' + sid + '" id="' + id + '" fieldLabel="목록" datasetid="dsList">' +
+        formData.replace("/>", ' height="180"/>') +
+        '<cl:gridcolumn std:sid="' + sid + '-col1" width="120px"/><cl:gridcolumn std:sid="' + sid + '-col2" width="160px"/>' +
+        '<cl:gridheader std:sid="' + sid + '-head"><cl:gridrow std:sid="' + sid + '-hrow" height="28px"/>' +
+        '<cl:gridcell std:sid="' + sid + '-hcell1" rowindex="0" colindex="0" text="컬럼1" targetcolumnname="COLUMN1"/>' +
+        '<cl:gridcell std:sid="' + sid + '-hcell2" rowindex="0" colindex="1" text="컬럼2" targetcolumnname="COLUMN2"/>' +
+        '</cl:gridheader><cl:griddetail std:sid="' + sid + '-detail"><cl:gridrow std:sid="' + sid + '-drow" height="28px"/>' +
+        '<cl:gridcell std:sid="' + sid + '-dcell1" rowindex="0" colindex="0" columnname="COLUMN1"/>' +
+        '<cl:gridcell std:sid="' + sid + '-dcell2" rowindex="0" colindex="1" columnname="COLUMN2"/>' +
+        '</cl:griddetail></cl:grid>';
+    }
+    return "";
+  }
+
+  function parseFragment(xml) {
+    var wrapper = '<wrap xmlns:cl="' + CL_NS + '" xmlns:std="' + STD_NS + '">' + xml + '</wrap>';
+    var doc = new DOMParser().parseFromString(wrapper, "application/xml");
+    if (doc.getElementsByTagName("parsererror")[0]) return null;
+    var first = doc.documentElement.firstElementChild;
+    return first ? state.xmlDoc.importNode(first, true) : null;
+  }
+
+  function serializeClx(pretty) {
+    var xml = new XMLSerializer().serializeToString(state.xmlDoc);
+    return pretty === false ? xml : prettyXml(xml);
+  }
+
+  function prettyXml(xml) {
+    var formatted = "";
+    var pad = 0;
+    xml = String(xml || "").replace(/>\s*</g, "><").replace(/></g, ">\n<");
+    xml.split("\n").forEach(function (line) {
+      if (/^<\/.+>/.test(line)) pad = Math.max(pad - 1, 0);
+      formatted += repeat("  ", pad) + line + "\n";
+      if (/^<[^!?/][^>]*[^/]?>$/.test(line) && !/^<[^>]+><\/[^>]+>$/.test(line)) pad += 1;
+    });
+    return formatted.trim();
+  }
+
+  function ensureRootGroup() {
+    var root = getByLocalName("group").find(function (node) {
+      return node.getAttribute("id") === "grpRoot";
+    }) || getByLocalName("group")[0];
+    if (root) return root;
+
+    var body = getByLocalName("body")[0] || state.xmlDoc.documentElement;
+    var group = parseFragment('<cl:group std:sid="' + nextSid("group") + '" id="grpRoot"><cl:formlayout std:sid="' + nextSid("layout") + '" scrollable="false"><cl:rows length="1" unit="FRACTION"/><cl:columns length="1" unit="FRACTION"/></cl:formlayout></cl:group>');
+    body.appendChild(group);
+    return group;
+  }
+
+  function getDefaultScreen() {
+    return getByLocalName("screen").find(function (screen) {
+      return screen.getAttribute("id") === "default";
+    }) || getByLocalName("screen")[0] || null;
+  }
+
+  function componentChildren(parent) {
+    return Array.prototype.slice.call(parent.children || []).filter(function (child) {
+      return isVisualTag(localName(child));
+    });
+  }
+
+  function collectVisualNodes() {
+    var nodes = [];
+    function visit(node) {
+      if (!node || node.nodeType !== 1) return;
+      if (isVisualTag(localName(node))) nodes.push(node);
+      Array.prototype.slice.call(node.children || []).forEach(visit);
+    }
+    visit(ensureRootGroup());
+    return nodes;
+  }
+
+  function isVisualTag(name) {
+    return VISUAL_TAGS.indexOf(name) >= 0;
+  }
+
+  function applyGroupLayout(view, xmlNode) {
+    var layout = directChild(xmlNode, "formlayout");
+    var rows = layout ? directChildren(layout, "rows").map(layoutTrack) : [];
+    var cols = layout ? directChildren(layout, "columns").map(layoutTrack) : [];
+    view.style.display = "grid";
+    view.style.gridTemplateRows = rows.length ? rows.join(" ") : "auto";
+    view.style.gridTemplateColumns = cols.length ? cols.join(" ") : "1fr";
+    view.style.gap = layout ? readGap(layout) : "8px";
+  }
+
+  function layoutTrack(node) {
+    var length = node.getAttribute("length") || "1";
+    var unit = (node.getAttribute("unit") || "FRACTION").toUpperCase();
+    if (unit === "FRACTION") return Number(length) ? Number(length) + "fr" : "1fr";
+    if (unit === "PIXEL") return readLength(length, 32) + "px";
+    return length;
+  }
+
+  function readGap(layout) {
+    var h = readLength(layout.getAttribute("hspace") || layout.getAttribute("hspacing"), 8);
+    var v = readLength(layout.getAttribute("vspace") || layout.getAttribute("vspacing"), 8);
+    return v + "px " + h + "px";
+  }
+
+  function applyFormData(view, xmlNode) {
+    var data = formData(xmlNode);
+    var row = Number(data.getAttribute("row") || 0) + 1;
+    var col = Number(data.getAttribute("col") || 0) + 1;
+    var rowspan = Number(data.getAttribute("rowspan") || 1);
+    var colspan = Number(data.getAttribute("colspan") || 1);
+    view.style.gridRow = row + " / span " + rowspan;
+    view.style.gridColumn = col + " / span " + colspan;
+
+    var width = data.getAttribute("width");
+    var height = data.getAttribute("height");
+    if (width) view.style.width = normalizeCssLength(width);
+    if (height) view.style.minHeight = normalizeCssLength(height);
+  }
+
+  function formData(node) {
+    var existing = directChild(node, "formdata");
+    if (existing) return existing;
+    var data = parseFragment('<cl:formdata std:sid="' + nextSid("fdata") + '" row="0" col="0"/>');
+    node.insertBefore(data, node.firstChild);
+    return data;
+  }
+
+  function setFormDataAttr(node, attr, value) {
+    var data = formData(node);
+    if (value === "") data.removeAttribute(attr);
+    else data.setAttribute(attr, value);
+  }
+
+  function boundColumn(node) {
+    var bind = directChild(node, "relativebind");
+    return bind ? bind.getAttribute("columnname") || "" : "";
+  }
+
+  function setBoundColumn(node, value) {
+    var bind = directChild(node, "relativebind");
+    if (!value) {
+      if (bind) node.removeChild(bind);
+      return;
+    }
+    if (!bind) {
+      bind = parseFragment('<cl:relativebind property="value" columnname=""/>');
+      node.insertBefore(bind, node.firstChild);
+    }
+    bind.setAttribute("property", "value");
+    bind.setAttribute("columnname", value);
+  }
+
+  function clickHandler(node) {
+    var listener = directChildren(node, "listener").find(function (item) {
+      return (item.getAttribute("name") || "").toLowerCase() === "click";
+    });
+    return listener ? listener.getAttribute("handler") || "" : "";
+  }
+
+  function setClickHandler(node, value) {
+    var listener = directChildren(node, "listener").find(function (item) {
+      return (item.getAttribute("name") || "").toLowerCase() === "click";
+    });
+    if (!value) {
+      if (listener) node.removeChild(listener);
+      return;
+    }
+    if (!listener) {
+      listener = parseFragment('<cl:listener std:sid="' + nextSid("listener") + '" name="click" handler=""/>');
+      node.insertBefore(listener, node.firstChild);
+    }
+    listener.setAttribute("name", "click");
+    listener.setAttribute("handler", value);
+  }
+
+  function nearestGroup(node) {
+    while (node && node.parentNode) {
+      if (localName(node) === "group") return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  function ownerGroup(node) {
+    node = node && node.parentNode;
+    while (node && node.parentNode) {
+      if (localName(node) === "group") return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  function isAncestorOf(parent, child) {
+    var current = child;
+    while (current) {
+      if (current === parent) return true;
+      current = current.parentNode;
+    }
+    return false;
+  }
+
+  function ensureGroupRows(group, count) {
+    if (!group) return;
+    var layout = directChild(group, "formlayout");
+    if (!layout) {
+      layout = parseFragment('<cl:formlayout std:sid="' + nextSid("layout") + '" scrollable="false" hspace="8px" vspace="8px"><cl:columns length="1" unit="FRACTION"/></cl:formlayout>');
+      group.appendChild(layout);
+    }
+    while (directChildren(layout, "rows").length < count) {
+      layout.insertBefore(parseFragment('<cl:rows length="40" unit="PIXEL"/>'), directChild(layout, "columns"));
+    }
+    if (!directChildren(layout, "columns").length) {
+      layout.appendChild(parseFragment('<cl:columns length="1" unit="FRACTION"/>'));
+    }
+  }
+
+  function ensureGroupColumns(group, count) {
+    if (!group) return;
+    var layout = directChild(group, "formlayout");
+    if (!layout) {
+      layout = parseFragment('<cl:formlayout std:sid="' + nextSid("layout") + '" scrollable="false" hspace="8px" vspace="8px"><cl:rows length="40" unit="PIXEL"/></cl:formlayout>');
+      group.appendChild(layout);
+    }
+    while (directChildren(layout, "columns").length < count) {
+      layout.appendChild(parseFragment('<cl:columns length="1" unit="FRACTION"/>'));
+    }
+    if (!directChildren(layout, "rows").length) {
+      layout.insertBefore(parseFragment('<cl:rows length="40" unit="PIXEL"/>'), directChild(layout, "columns"));
+    }
+  }
+
+  function addJsHandler(handler) {
+    if (!handler || state.jsSource.indexOf("function " + handler) >= 0) return;
+    state.jsSource += (state.jsSource.trim() ? "\n\n" : "") +
+      "function " + handler + "(e) {\n" +
+      "  // TODO: 버튼 동작을 구현합니다.\n" +
+      "}\n";
+  }
+
+  function keyForElement(element) {
+    var found = "";
+    state.nodeMap.forEach(function (node, key) {
+      if (node === element) found = key;
+    });
+    return found;
+  }
+
+  function gridHeaders(grid) {
+    return getChildrenByLocalName(grid, "gridcell").filter(function (cell) {
+      return cell.parentNode && localName(cell.parentNode) === "gridheader";
+    }).map(function (cell) {
+      return cell.getAttribute("text") || cell.getAttribute("targetcolumnname") || cell.getAttribute("columnname") || "";
     }).filter(Boolean);
   }
 
-  function parseFieldLine(line, index) {
-    var cleaned = String(line || "").replace(/\s+#.*$/, "").trim();
-    if (!cleaned) return null;
-    var parts = cleaned.indexOf("|") >= 0 ? cleaned.split("|") : cleaned.split(",");
-    var rawName = cleanText(parts[0]);
-    var name = sanitizeColumnName(rawName || "COLUMN_" + (index + 1));
-    var label = cleanText(parts[1]) || humanizeColumn(name);
-    var type = normalizeDataType(parts[2]);
-    var required = /^(y|yes|required|필수|true|1)$/i.test(cleanText(parts[3]));
-    var control = normalizeControl(parts[4], type, name);
-    var width = cleanText(parts[5]) || defaultColumnWidth(type, control);
-    var itemset = cleanText(parts[6]);
-    var align = normalizeAlign(parts[7], type);
-    var readonly = parseBooleanFlag(parts[8]);
-    var maxLength = cleanText(parts[9]);
-
-    return {
-      name: name,
-      label: label,
-      type: type,
-      required: required,
-      control: control,
-      width: width,
-      itemset: itemset,
-      align: align,
-      readonly: readonly,
-      maxLength: maxLength
-    };
+  function datasetColumns(datasetId) {
+    var dataset = getByLocalName("dataset").find(function (node) {
+      return node.getAttribute("id") === datasetId;
+    });
+    return dataset ? getChildrenByLocalName(dataset, "datacolumn").map(function (column) {
+      return column.getAttribute("comment") || column.getAttribute("name") || "";
+    }).filter(Boolean) : [];
   }
 
-  function generateClx(model, parsed) {
-    var sid = new SidFactory();
-    var isList = model.templateType === "list";
-    var isForm = model.templateType === "form";
-    var isPopup = model.templateType === "popup";
-    var mapId = isForm || isPopup ? "dmForm" : "dmSearch";
-    var dataId = isForm || isPopup ? "dmForm" : "dsList";
-    var rows = [];
-    var children = [];
+  function gridColumnModels(grid) {
+    var columns = directChildren(grid, "gridcolumn");
+    var headers = gridHeaderCells(grid);
+    var details = gridDetailCells(grid);
+    var datasetCols = datasetColumnNodes(grid.getAttribute("datasetid"));
+    var count = Math.max(columns.length, headers.length, details.length, datasetCols.length, 1);
+    var result = [];
 
-    if (isList) {
-      if (model.includeSearch) {
-        children.push(generateSearchGroup(model, parsed.searchFields, sid, 0, "dmSearch"));
-        rows.push({ length: searchGroupHeight(model, parsed.searchFields), unit: "PIXEL" });
-      }
-      children.push(generateGrid(model, parsed.dataFields, sid, rows.length));
-      rows.push({ length: "1", unit: "FRACTION" });
-      children.push(generateFooterButtons(model, sid, rows.length));
-      rows.push({ length: "42", unit: "PIXEL" });
-    } else if (isForm) {
-      children.push(generateFormGroup(model, parsed.dataFields, sid, 0, mapId));
-      rows.push({ length: "1", unit: "FRACTION" });
-      children.push(generateFooterButtons(model, sid, 1));
-      rows.push({ length: "42", unit: "PIXEL" });
-    } else {
-      if (model.includeSearch) {
-        children.push(generateSearchGroup(model, parsed.searchFields, sid, 0, "dmForm"));
-        rows.push({ length: searchGroupHeight(model, parsed.searchFields), unit: "PIXEL" });
-      }
-      children.push(generateGrid(model, parsed.dataFields, sid, rows.length));
-      rows.push({ length: "1", unit: "FRACTION" });
-      children.push(generatePopupButtons(model, sid, rows.length));
-      rows.push({ length: "42", unit: "PIXEL" });
+    for (var index = 0; index < count; index++) {
+      var field = (details[index] && details[index].getAttribute("columnname")) ||
+        (headers[index] && headers[index].getAttribute("targetcolumnname")) ||
+        (datasetCols[index] && datasetCols[index].getAttribute("name")) ||
+        ("COLUMN" + (index + 1));
+      var label = (headers[index] && headers[index].getAttribute("text")) ||
+        (datasetCols[index] && datasetCols[index].getAttribute("comment")) ||
+        field;
+      var width = columns[index] && columns[index].getAttribute("width") || "120px";
+      result.push({ field: field, label: label, width: width });
     }
 
-    var modelXml = [];
-    modelXml.push(generateDataMap(mapId, isForm || isPopup ? mergeFields(parsed.searchFields, parsed.dataFields) : parsed.searchFields, sid));
-    if (isList || isPopup) {
-      modelXml.push(generateDataset("dsList", parsed.dataFields, sid));
+    return result;
+  }
+
+  function updateGridColumn(index, prop, value) {
+    var grid = selectedElement();
+    if (!grid || localName(grid) !== "grid" || index < 0) return;
+    ensureGridColumnNodes(grid, index + 1);
+
+    var columns = directChildren(grid, "gridcolumn");
+    var headers = gridHeaderCells(grid);
+    var details = gridDetailCells(grid);
+    var datasetCol = ensureDatasetColumn(grid, index);
+
+    if (prop === "label") {
+      headers[index].setAttribute("text", value || ("컬럼" + (index + 1)));
+      datasetCol.setAttribute("comment", value || ("컬럼" + (index + 1)));
     }
-    if (model.includeSearch && cleanText(model.endpointSearch)) {
-      modelXml.push(generateSubmission("subList", model.endpointSearch, [mapId], isForm ? [mapId] : ["dsList"], sid));
+    if (prop === "field") {
+      var fieldName = sanitizeColumnName(value || ("COLUMN" + (index + 1)));
+      headers[index].setAttribute("targetcolumnname", fieldName);
+      details[index].setAttribute("columnname", fieldName);
+      datasetCol.setAttribute("name", fieldName);
     }
-    if (model.includeSave && cleanText(model.endpointSave)) {
-      modelXml.push(generateSubmission("subSave", model.endpointSave, [dataId], [dataId], sid));
-    }
-    if (model.includeDelete && cleanText(model.endpointDelete)) {
-      modelXml.push(generateSubmission("subDelete", model.endpointDelete, [dataId], [], sid));
+    if (prop === "width") {
+      columns[index].setAttribute("width", normalizeColumnWidth(value || "120"));
     }
 
+    refreshPreviewAfterEdit();
+    persist();
+  }
+
+  function addGridColumn() {
+    var grid = selectedElement();
+    if (!grid || localName(grid) !== "grid") return;
+    var index = gridColumnModels(grid).length;
+    ensureGridColumnNodes(grid, index + 1);
+    updateGridColumn(index, "field", "COLUMN" + (index + 1));
+    updateGridColumn(index, "label", "컬럼" + (index + 1));
+    updateGridColumn(index, "width", "120");
+    showToast("목록 컬럼을 추가했습니다.");
+  }
+
+  function removeGridColumn(index) {
+    var grid = selectedElement();
+    if (!grid || localName(grid) !== "grid") return;
+    var models = gridColumnModels(grid);
+    if (models.length <= 1) {
+      showToast("목록에는 최소 1개 컬럼이 필요합니다.");
+      return;
+    }
+
+    removeAt(directChildren(grid, "gridcolumn"), index);
+    removeAt(gridHeaderCells(grid), index);
+    removeAt(gridDetailCells(grid), index);
+    removeAt(datasetColumnNodes(grid.getAttribute("datasetid")), index);
+    reindexGridCells(grid);
+    renderAll();
+    persist();
+    showToast("목록 컬럼을 삭제했습니다.");
+  }
+
+  function ensureGridColumnNodes(grid, count) {
+    var header = ensureGridSection(grid, "gridheader");
+    var detail = ensureGridSection(grid, "griddetail");
+    var firstHeaderCell = gridHeaderCells(grid)[0] || null;
+    var firstDetailCell = gridDetailCells(grid)[0] || null;
+
+    while (directChildren(grid, "gridcolumn").length < count) {
+      var column = parseFragment('<cl:gridcolumn std:sid="' + nextSid("gcol") + '" width="120px"/>');
+      grid.insertBefore(column, header);
+    }
+    while (gridHeaderCells(grid).length < count) {
+      header.appendChild(parseFragment('<cl:gridcell std:sid="' + nextSid("ghcell") + '" rowindex="0" colindex="0" text="컬럼" targetcolumnname="COLUMN"/>'));
+    }
+    while (gridDetailCells(grid).length < count) {
+      detail.appendChild(parseFragment('<cl:gridcell std:sid="' + nextSid("gdcell") + '" rowindex="0" colindex="0" columnname="COLUMN"/>'));
+    }
+    for (var index = 0; index < count; index++) {
+      ensureDatasetColumn(grid, index);
+    }
+    reindexGridCells(grid);
+
+    if (firstHeaderCell || firstDetailCell) {
+      return;
+    }
+  }
+
+  function ensureGridSection(grid, tagName) {
+    var section = directChild(grid, tagName);
+    if (section) return section;
+    section = parseFragment('<cl:' + tagName + ' std:sid="' + nextSid(tagName) + '"><cl:gridrow std:sid="' + nextSid("grow") + '" height="28px"/></cl:' + tagName + '>');
+    grid.appendChild(section);
+    return section;
+  }
+
+  function ensureDatasetColumn(grid, index) {
+    var datasetId = grid.getAttribute("datasetid") || "dsList";
+    grid.setAttribute("datasetid", datasetId);
+    var dataset = ensureDataset(datasetId);
+    var list = ensureDataColumnList(dataset);
+    var columns = directChildren(list, "datacolumn");
+    while (columns.length <= index) {
+      var nextIndex = columns.length + 1;
+      list.appendChild(parseFragment('<cl:datacolumn std:sid="' + nextSid("dcol") + '" name="COLUMN' + nextIndex + '" comment="컬럼' + nextIndex + '" datatype="string"/>'));
+      columns = directChildren(list, "datacolumn");
+    }
+    return columns[index];
+  }
+
+  function ensureDataset(id) {
+    var dataset = getByLocalName("dataset").find(function (node) {
+      return node.getAttribute("id") === id;
+    });
+    if (dataset) return dataset;
+    dataset = parseFragment('<cl:dataset std:sid="' + nextSid("dataset") + '" id="' + id + '"><cl:datacolumnlist/><cl:datarowlist/></cl:dataset>');
+    ensureModel().appendChild(dataset);
+    return dataset;
+  }
+
+  function ensureModel() {
+    var model = getByLocalName("model")[0];
+    if (model) return model;
+    model = parseFragment('<cl:model std:sid="' + nextSid("model") + '"/>');
+    var head = getByLocalName("head")[0] || state.xmlDoc.documentElement;
+    var appspec = directChild(head, "appspec");
+    if (appspec) head.insertBefore(model, appspec);
+    else head.appendChild(model);
+    return model;
+  }
+
+  function ensureDataColumnList(dataset) {
+    var list = directChild(dataset, "datacolumnlist");
+    if (list) return list;
+    list = parseFragment('<cl:datacolumnlist/>');
+    dataset.insertBefore(list, dataset.firstChild);
+    return list;
+  }
+
+  function gridHeaderCells(grid) {
+    var header = directChild(grid, "gridheader");
+    return header ? getChildrenByLocalName(header, "gridcell").sort(byColIndex) : [];
+  }
+
+  function gridDetailCells(grid) {
+    var detail = directChild(grid, "griddetail");
+    return detail ? getChildrenByLocalName(detail, "gridcell").sort(byColIndex) : [];
+  }
+
+  function datasetColumnNodes(datasetId) {
+    var dataset = getByLocalName("dataset").find(function (node) {
+      return node.getAttribute("id") === datasetId;
+    });
+    if (!dataset) return [];
+    var list = directChild(dataset, "datacolumnlist") || dataset;
+    return directChildren(list, "datacolumn");
+  }
+
+  function reindexGridCells(grid) {
+    gridHeaderCells(grid).forEach(function (cell, index) {
+      cell.setAttribute("rowindex", "0");
+      cell.setAttribute("colindex", String(index));
+    });
+    gridDetailCells(grid).forEach(function (cell, index) {
+      cell.setAttribute("rowindex", "0");
+      cell.setAttribute("colindex", String(index));
+    });
+  }
+
+  function removeAt(list, index) {
+    if (list[index] && list[index].parentNode) {
+      list[index].parentNode.removeChild(list[index]);
+    }
+  }
+
+  function byColIndex(a, b) {
+    return Number(a.getAttribute("colindex") || 0) - Number(b.getAttribute("colindex") || 0);
+  }
+
+  function getByLocalName(name) {
+    if (!state.xmlDoc) return [];
+    return Array.prototype.slice.call(state.xmlDoc.getElementsByTagNameNS("*", name));
+  }
+
+  function getChildrenByLocalName(node, name) {
+    var result = [];
+    function visit(current) {
+      Array.prototype.slice.call(current.children || []).forEach(function (child) {
+        if (localName(child) === name) result.push(child);
+        visit(child);
+      });
+    }
+    visit(node);
+    return result;
+  }
+
+  function directChild(node, name) {
+    return directChildren(node, name)[0] || null;
+  }
+
+  function directChildren(node, name) {
+    return Array.prototype.slice.call(node.children || []).filter(function (child) {
+      return localName(child) === name;
+    });
+  }
+
+  function localName(node) {
+    return node && (node.localName || node.nodeName || "").replace(/^.*:/, "").toLowerCase();
+  }
+
+  function describeNode(node) {
+    if (!node) return "";
+    var tag = localName(node);
+    return node.getAttribute("id") || node.getAttribute("value") || node.getAttribute("fieldLabel") || node.getAttribute("datasetid") || tag;
+  }
+
+  function uniqueId(type) {
+    var prefix = {
+      group: "grp",
+      output: "opt",
+      inputbox: "ipb",
+      combobox: "cmb",
+      dateinput: "dti",
+      textarea: "txa",
+      button: "btn",
+      grid: "grd"
+    }[type] || "ctl";
+    var used = {};
+    collectVisualNodes().forEach(function (node) {
+      if (node.getAttribute("id")) used[node.getAttribute("id")] = true;
+    });
+    var index = 1;
+    var id = prefix + index;
+    while (used[id]) {
+      index += 1;
+      id = prefix + index;
+    }
+    return id;
+  }
+
+  function nextSid(prefix) {
+    state.sidIndex += 1;
+    return prefix + "-" + ("0000" + state.sidIndex).slice(-4);
+  }
+
+  function defaultClx() {
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',
-      '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:cl="http://tomatosystem.co.kr/cleopatra" xmlns:std="http://tomatosystem.co.kr/cleopatra/studio" std:sid="' + sid.next("html") + '" version="1.0.3309">',
-      '  <head std:sid="' + sid.next("head") + '">',
-      '    <screen std:sid="' + sid.next("screen") + '" id="default" name="default" minwidth="' + xmlAttr(model.screenWidth) + 'px" width="' + xmlAttr(model.screenWidth) + 'px" height="' + xmlAttr(model.screenHeight) + 'px"/>',
-      '    <screen std:sid="' + sid.next("screen") + '" id="tablet" name="tablet" minwidth="700px" maxwidth="' + xmlAttr(String(Number(model.screenWidth) - 1)) + 'px" width="700px" height="667px"/>',
-      '    <screen std:sid="' + sid.next("screen") + '" id="mobile" name="mobile" maxwidth="699px" width="350px" height="525px"/>',
-      '    <cl:model std:sid="' + sid.next("model") + '">',
-      modelXml.join("\n"),
+      '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:cl="' + CL_NS + '" xmlns:std="' + STD_NS + '" std:sid="html-0001" version="1.0.3309">',
+      '  <head std:sid="head-0001">',
+      '    <screen std:sid="screen-0001" id="default" name="default" minwidth="1280px" width="1280px" height="720px"/>',
+      '    <screen std:sid="screen-0002" id="tablet" name="tablet" minwidth="700px" maxwidth="1279px" width="700px" height="667px"/>',
+      '    <screen std:sid="screen-0003" id="mobile" name="mobile" maxwidth="699px" width="350px" height="525px"/>',
+      '    <cl:model std:sid="model-0001">',
+      '      <cl:datamap std:sid="dmap-0001" id="dmSearch">',
+      '        <cl:datacolumnlist><cl:datacolumn std:sid="dcol-0001" name="KEYWORD" comment="검색어" datatype="string"/></cl:datacolumnlist>',
+      '      </cl:datamap>',
+      '      <cl:dataset std:sid="dataset-0001" id="dsList">',
+      '        <cl:datacolumnlist>',
+      '          <cl:datacolumn std:sid="dcol-0002" name="COLUMN1" comment="컬럼1" datatype="string"/>',
+      '          <cl:datacolumn std:sid="dcol-0003" name="COLUMN2" comment="컬럼2" datatype="string"/>',
+      '        </cl:datacolumnlist>',
+      '        <cl:datarowlist/>',
+      '      </cl:dataset>',
+      '      <cl:submission std:sid="sub-0001" id="subList" action="/sample/selectList.do"><cl:requestdata dataid="dmSearch"/><cl:responsedata dataid="dsList"/></cl:submission>',
       '    </cl:model>',
-      '    <cl:appspec title="' + xmlAttr(model.screenTitle) + '" dev-comment="Generated by eXBuilder6 화면 마법사"/>',
+      '    <cl:appspec title="새 화면" dev-comment="Generated by eXBuilder6 Web IDE"/>',
       '  </head>',
-      '  <body std:sid="' + sid.next("body") + '">',
-      '    <cl:listener std:sid="' + sid.next("listener") + '" name="load" handler="onBodyLoad"/>',
-      '    <cl:group std:sid="' + sid.next("group") + '" id="grpRoot" style="padding:10px;">',
-      children.join("\n"),
-      generateRootLayout(rows, sid),
+      '  <body std:sid="body-0001">',
+      '    <cl:listener std:sid="listener-0001" name="load" handler="onBodyLoad"/>',
+      '    <cl:group std:sid="group-0001" id="grpRoot" style="padding:10px;">',
+      '      <cl:group std:sid="group-0002" id="grpSearch" class="search-box">',
+      '        <cl:formdata std:sid="fdata-0001" row="0" col="0"/>',
+      '        <cl:output std:sid="output-0001" id="optKeyword" value="검색어"><cl:formdata std:sid="fdata-0002" row="0" col="0"/></cl:output>',
+      '        <cl:inputbox std:sid="input-0001" id="ipbKeyword" fieldLabel="검색어"><cl:relativebind property="value" columnname="KEYWORD"/><cl:formdata std:sid="fdata-0003" row="0" col="1"/></cl:inputbox>',
+      '        <cl:button std:sid="button-0001" id="btnSearch" value="조회"><cl:listener std:sid="listener-0002" name="click" handler="onBtnSearchClick"/><cl:formdata std:sid="fdata-0004" row="0" col="2" width="80" height="30"/></cl:button>',
+      '        <cl:formlayout std:sid="layout-0001" scrollable="false" hspace="8px" vspace="8px"><cl:rows length="32" unit="PIXEL"/><cl:columns length="80" unit="PIXEL"/><cl:columns length="1" unit="FRACTION"/><cl:columns length="90" unit="PIXEL"/></cl:formlayout>',
+      '      </cl:group>',
+      '      <cl:grid std:sid="grid-0001" id="grdList" fieldLabel="목록" datasetid="dsList">',
+      '        <cl:formdata std:sid="fdata-0005" row="1" col="0" height="420"/>',
+      '        <cl:gridcolumn std:sid="gcol-0001" width="120px"/><cl:gridcolumn std:sid="gcol-0002" width="180px"/>',
+      '        <cl:gridheader std:sid="ghead-0001"><cl:gridrow std:sid="grow-0001" height="28px"/><cl:gridcell std:sid="gcell-0001" rowindex="0" colindex="0" targetcolumnname="COLUMN1" text="컬럼1"/><cl:gridcell std:sid="gcell-0002" rowindex="0" colindex="1" targetcolumnname="COLUMN2" text="컬럼2"/></cl:gridheader>',
+      '        <cl:griddetail std:sid="gdetail-0001"><cl:gridrow std:sid="grow-0002" height="28px"/><cl:gridcell std:sid="gcell-0003" rowindex="0" colindex="0" columnname="COLUMN1"/><cl:gridcell std:sid="gcell-0004" rowindex="0" colindex="1" columnname="COLUMN2"/></cl:griddetail>',
+      '      </cl:grid>',
+      '      <cl:formlayout std:sid="layout-0002" scrollable="false" hspace="0px" vspace="10px"><cl:rows length="52" unit="PIXEL"/><cl:rows length="1" unit="FRACTION"/><cl:columns length="1" unit="FRACTION"/></cl:formlayout>',
       '    </cl:group>',
-      '    <cl:formlayout std:sid="' + sid.next("f-layout") + '" scrollable="false" hspace="0px" vspace="0px" top-margin="0px" right-margin="0px" bottom-margin="0px" left-margin="0px">',
-      '      <cl:rows length="1" unit="FRACTION"/>',
-      '      <cl:columns length="1" unit="FRACTION"/>',
-      '    </cl:formlayout>',
+      '    <cl:formlayout std:sid="layout-0003" scrollable="false" hspace="0px" vspace="0px"><cl:rows length="1" unit="FRACTION"/><cl:columns length="1" unit="FRACTION"/></cl:formlayout>',
       '  </body>',
-      '  <std:studiosetting>',
-      '    <std:hruler/>',
-      '    <std:vruler/>',
-      '  </std:studiosetting>',
       '</html>'
     ].join("\n");
   }
 
-  function generateDataMap(id, fields, sid) {
+  function defaultJs() {
     return [
-      '      <cl:datamap std:sid="' + sid.next("d-map") + '" id="' + xmlAttr(id) + '">',
-      '        <cl:datacolumnlist>',
-      fields.map(function (field) { return generateDataColumn(field, sid, 10); }).join("\n"),
-      '        </cl:datacolumnlist>',
-      '      </cl:datamap>'
-    ].join("\n");
-  }
-
-  function generateDataset(id, fields, sid) {
-    return [
-      '      <cl:dataset std:sid="' + sid.next("d-set") + '" id="' + xmlAttr(id) + '">',
-      '        <cl:datacolumnlist>',
-      fields.map(function (field) { return generateDataColumn(field, sid, 10); }).join("\n"),
-      '        </cl:datacolumnlist>',
-      '        <cl:datarowlist/>',
-      '      </cl:dataset>'
-    ].join("\n");
-  }
-
-  function generateDataColumn(field, sid, indent) {
-    var space = repeat(" ", indent);
-    var attrs = [
-      'comment="' + xmlAttr(field.label) + '"',
-      'std:sid="' + sid.next("d-column") + '"',
-      'name="' + xmlAttr(field.name) + '"'
-    ];
-    if (field.type) attrs.push('datatype="' + xmlAttr(field.type) + '"');
-    return space + "<cl:datacolumn " + attrs.join(" ") + "/>";
-  }
-
-  function generateSubmission(id, action, requestIds, responseIds, sid) {
-    var lines = [];
-    lines.push('      <cl:submission std:sid="' + sid.next("submission") + '" id="' + xmlAttr(id) + '" action="' + xmlAttr(action) + '">');
-    requestIds.forEach(function (item) {
-      lines.push('        <cl:requestdata dataid="' + xmlAttr(item) + '"/>');
-    });
-    responseIds.forEach(function (item) {
-      lines.push('        <cl:responsedata dataid="' + xmlAttr(item) + '"/>');
-    });
-    lines.push("      </cl:submission>");
-    return lines.join("\n");
-  }
-
-  function generateSearchGroup(model, fields, sid, rowIndex, dataMapId) {
-    var perRow = clampInt(model.controlsPerRow, 1, 4, 2);
-    var rowCount = Math.max(1, Math.ceil(Math.max(fields.length, 1) / perRow));
-    var labelWidth = clampInt(model.labelWidth, 50, 180, 90);
-    var lines = [];
-    lines.push('      <cl:group std:sid="' + sid.next("group") + '" id="grpSearch" class="search-box">');
-    lines.push('        <cl:datamapcontext datacontrolid="' + xmlAttr(dataMapId || "dmSearch") + '"/>');
-    lines.push('        <cl:formdata std:sid="' + sid.next("f-data") + '" row="' + rowIndex + '" col="0"/>');
-    fields.forEach(function (field, index) {
-      var row = Math.floor(index / perRow);
-      var col = (index % perRow) * 2;
-      lines.push(generateLabeledControl(field, sid, row, col, "search"));
-    });
-    lines.push('        <cl:group std:sid="' + sid.next("group") + '" id="grpSearchButtons">');
-    lines.push('          <cl:formdata std:sid="' + sid.next("f-data") + '" row="0" col="' + (perRow * 2) + '" rowspan="' + rowCount + '" colspan="1"/>');
-    if (model.includeReset) {
-      lines.push(generateButton("btnReset", "초기화", "onBtnResetClick", sid, "          ", "80px"));
-    }
-    if (model.includeSearch) {
-      lines.push(generateButton("btnSearch", "조회", "onBtnSearchClick", sid, "          ", "80px"));
-    }
-    lines.push('          <cl:flowlayout std:sid="' + sid.next("f-layout") + '" scrollable="false" hspacing="8" vspacing="0" halign="right" valign="middle"/>');
-    lines.push("        </cl:group>");
-    lines.push(generateFormLayout(rowCount, perRow, labelWidth, true, sid, "        "));
-    lines.push("      </cl:group>");
-    return lines.join("\n");
-  }
-
-  function generateFormGroup(model, fields, sid, rowIndex, dataMapId) {
-    var perRow = clampInt(model.controlsPerRow, 1, 4, 2);
-    var rowCount = Math.max(1, Math.ceil(Math.max(fields.length, 1) / perRow));
-    var labelWidth = clampInt(model.labelWidth, 50, 180, 90);
-    var lines = [];
-    lines.push('      <cl:group std:sid="' + sid.next("group") + '" id="grpForm" class="form-box">');
-    lines.push('        <cl:datamapcontext datacontrolid="' + xmlAttr(dataMapId) + '"/>');
-    lines.push('        <cl:formdata std:sid="' + sid.next("f-data") + '" row="' + rowIndex + '" col="0"/>');
-    fields.forEach(function (field, index) {
-      var row = Math.floor(index / perRow);
-      var col = (index % perRow) * 2;
-      lines.push(generateLabeledControl(field, sid, row, col, "form"));
-    });
-    lines.push(generateFormLayout(rowCount, perRow, labelWidth, false, sid, "        "));
-    lines.push("      </cl:group>");
-    return lines.join("\n");
-  }
-
-  function generateLabeledControl(field, sid, row, col, mode) {
-    var lines = [];
-    var idSuffix = toPascal(field.name);
-    var labelId = "opt" + (mode === "search" ? "Search" : "Form") + idSuffix;
-    lines.push('        <cl:output std:sid="' + sid.next("output") + '" id="' + xmlAttr(labelId) + '" class="label' + (field.required ? " require" : "") + '" value="' + xmlAttr(field.label) + '">');
-    lines.push('          <cl:formdata std:sid="' + sid.next("f-data") + '" row="' + row + '" col="' + col + '"/>');
-    lines.push("        </cl:output>");
-    lines.push(generateControl(field, sid, row, col + 1, mode));
-    return lines.join("\n");
-  }
-
-  function generateControl(field, sid, row, col, mode) {
-    var id = controlId(field);
-    var fieldLabel = xmlAttr(field.label);
-    var attributes = generateControlAttributes(field);
-    var bind = '\n          <cl:relativebind property="value" columnname="' + xmlAttr(field.name) + '"/>';
-    var formData = '\n          <cl:formdata std:sid="' + sid.next("f-data") + '" row="' + row + '" col="' + col + '"/>';
-
-    if (field.control === "combobox") {
-      return [
-        '        <cl:combobox std:sid="' + sid.next("c-box") + '" id="' + xmlAttr(id) + '" fieldLabel="' + fieldLabel + '" preventinput="true">',
-        attributes,
-        bind,
-        formData,
-        generateComboItems(field, mode, sid),
-        '        </cl:combobox>'
-      ].join("");
-    }
-
-    if (field.control === "dateinput") {
-      return [
-        '        <cl:dateinput std:sid="' + sid.next("d-input") + '" id="' + xmlAttr(id) + '" fieldLabel="' + fieldLabel + '" mask="YYYY-MM-DD" format="YYYYMMDD">',
-        attributes,
-        bind,
-        formData,
-        '        </cl:dateinput>'
-      ].join("");
-    }
-
-    if (field.control === "textarea") {
-      return [
-        '        <cl:textarea std:sid="' + sid.next("t-area") + '" id="' + xmlAttr(id) + '" fieldLabel="' + fieldLabel + '">',
-        attributes,
-        bind,
-        formData,
-        '        </cl:textarea>'
-      ].join("");
-    }
-
-    return [
-      '        <cl:inputbox std:sid="' + sid.next("i-box") + '" id="' + xmlAttr(id) + '" fieldLabel="' + fieldLabel + '">',
-      attributes,
-      bind,
-      formData,
-      '        </cl:inputbox>'
-    ].join("");
-  }
-
-  function generateControlAttributes(field) {
-    var attrs = [];
-    if (field.required) attrs.push('<cl:attribute name="required" value="Y"/>');
-    if (field.readonly) attrs.push('<cl:attribute name="readonly" value="Y"/>');
-    if (field.maxLength) attrs.push('<cl:attribute name="maxlength" value="' + xmlAttr(field.maxLength) + '"/>');
-    return attrs.length ? "\n          " + attrs.join("\n          ") : "";
-  }
-
-  function generateComboItems(field, mode, sid) {
-    var itemLabel = mode === "search" ? "전체" : "선택";
-    var items = resolveCodeItems(field.itemset);
-    var lines = ['          <cl:item std:sid="' + sid.next("t-item") + '" label="' + itemLabel + '" value=""/>'];
-    if (!items.length) {
-      items = resolveCodeItems("USE_YN");
-    }
-    items.forEach(function (item) {
-      lines.push('          <cl:item std:sid="' + sid.next("t-item") + '" label="' + xmlAttr(item.label) + '" value="' + xmlAttr(item.value) + '"/>');
-    });
-    return "\n" + lines.join("\n") + "\n";
-  }
-
-  function generateGrid(model, fields, sid, rowIndex) {
-    var lines = [];
-    var height = clampInt(model.gridHeight, 120, 1200, 360);
-    lines.push('      <cl:grid std:sid="' + sid.next("grid") + '" id="grdList" fieldLabel="' + xmlAttr(model.screenTitle + " 목록") + '" datasetid="dsList">');
-    lines.push('        <cl:formdata std:sid="' + sid.next("f-data") + '" row="' + rowIndex + '" col="0" height="' + height + '"/>');
-    fields.forEach(function (field) {
-      lines.push('        <cl:gridcolumn std:sid="' + sid.next("g-column") + '" width="' + xmlAttr(field.width) + 'px"/>');
-    });
-    lines.push('        <cl:gridheader std:sid="' + sid.next("gh-band") + '">');
-    lines.push('          <cl:gridrow std:sid="' + sid.next("g-row") + '" height="28px"/>');
-    fields.forEach(function (field, index) {
-      lines.push('          <cl:gridcell std:sid="' + sid.next("gh-cell") + '" rowindex="0" colindex="' + index + '" targetcolumnname="' + xmlAttr(field.name) + '" text="' + xmlAttr(field.label) + '"/>');
-    });
-    lines.push("        </cl:gridheader>");
-    lines.push('        <cl:griddetail std:sid="' + sid.next("gd-band") + '">');
-    lines.push('          <cl:gridrow std:sid="' + sid.next("g-row") + '" height="28px"/>');
-    fields.forEach(function (field, index) {
-      var align = field.align || (field.type === "number" ? "right" : "");
-      var style = align ? ' style="text-align:' + xmlAttr(align) + ';"' : "";
-      lines.push('          <cl:gridcell std:sid="' + sid.next("gd-cell") + '" rowindex="0" colindex="' + index + '"' + style + ' columnname="' + xmlAttr(field.name) + '"/>');
-    });
-    lines.push("        </cl:griddetail>");
-    lines.push("      </cl:grid>");
-    return lines.join("\n");
-  }
-
-  function generateFooterButtons(model, sid, rowIndex) {
-    var lines = [];
-    lines.push('      <cl:group std:sid="' + sid.next("group") + '" id="grpButtons">');
-    lines.push('        <cl:formdata std:sid="' + sid.next("f-data") + '" row="' + rowIndex + '" col="0"/>');
-    if (model.templateType === "form" && model.includeReset) {
-      lines.push(generateButton("btnReset", "초기화", "onBtnResetClick", sid, "        ", "78px"));
-    }
-    if (model.includeAdd) {
-      lines.push(generateButton("btnAdd", "추가", "onBtnAddClick", sid, "        ", "78px"));
-    }
-    if (model.includeDelete) {
-      lines.push(generateButton("btnDelete", "삭제", "onBtnDeleteClick", sid, "        ", "78px"));
-    }
-    if (model.includeSave) {
-      lines.push(generateButton("btnSave", "저장", "onBtnSaveClick", sid, "        ", "78px"));
-    }
-    lines.push('        <cl:flowlayout std:sid="' + sid.next("f-layout") + '" scrollable="false" hspacing="8" vspacing="0" halign="right" valign="middle"/>');
-    lines.push("      </cl:group>");
-    return lines.join("\n");
-  }
-
-  function generatePopupButtons(model, sid, rowIndex) {
-    var lines = [];
-    lines.push('      <cl:group std:sid="' + sid.next("group") + '" id="grpButtons">');
-    lines.push('        <cl:formdata std:sid="' + sid.next("f-data") + '" row="' + rowIndex + '" col="0"/>');
-    lines.push(generateButton("btnConfirm", "선택", "onBtnConfirmClick", sid, "        ", "78px"));
-    lines.push(generateButton("btnClose", "닫기", "onBtnCloseClick", sid, "        ", "78px"));
-    lines.push('        <cl:flowlayout std:sid="' + sid.next("f-layout") + '" scrollable="false" hspacing="8" vspacing="0" halign="right" valign="middle"/>');
-    lines.push("      </cl:group>");
-    return lines.join("\n");
-  }
-
-  function generateButton(id, label, handler, sid, indent, width) {
-    return [
-      indent + '<cl:button std:sid="' + sid.next("button") + '" id="' + xmlAttr(id) + '" value="' + xmlAttr(label) + '">',
-      indent + '  <cl:listener std:sid="' + sid.next("listener") + '" name="click" handler="' + xmlAttr(handler) + '"/>',
-      indent + '  <cl:flowlayoutdata std:sid="' + sid.next("f-data") + '" width="' + xmlAttr(width || "80px") + '" height="28px"/>',
-      indent + '</cl:button>'
-    ].join("\n");
-  }
-
-  function generateFormLayout(rowCount, perRow, labelWidth, includeButtonColumn, sid, indent) {
-    var lines = [];
-    lines.push(indent + '<cl:formlayout std:sid="' + sid.next("f-layout") + '" scrollable="false" hspace="8px" vspace="8px">');
-    for (var row = 0; row < rowCount; row++) {
-      lines.push(indent + '  <cl:rows length="32" unit="PIXEL"/>');
-    }
-    for (var col = 0; col < perRow; col++) {
-      lines.push(indent + '  <cl:columns length="' + labelWidth + '" unit="PIXEL"/>');
-      lines.push(indent + '  <cl:columns length="1" unit="FRACTION"/>');
-    }
-    if (includeButtonColumn) {
-      lines.push(indent + '  <cl:columns length="176" unit="PIXEL"/>');
-    }
-    lines.push(indent + "</cl:formlayout>");
-    return lines.join("\n");
-  }
-
-  function generateRootLayout(rows, sid) {
-    var lines = [];
-    lines.push('      <cl:formlayout std:sid="' + sid.next("f-layout") + '" scrollable="false" hspace="0px" vspace="10px">');
-    rows.forEach(function (row) {
-      lines.push('        <cl:rows length="' + row.length + '" unit="' + row.unit + '"/>');
-    });
-    lines.push('        <cl:columns length="1" unit="FRACTION"/>');
-    lines.push("      </cl:formlayout>");
-    return lines.join("\n");
-  }
-
-  function generateJs(model, parsed) {
-    var lines = [];
-    var date = new Date();
-    var isList = model.templateType === "list";
-    var isForm = model.templateType === "form";
-    var isPopup = model.templateType === "popup";
-    var mapId = isForm || isPopup ? "dmForm" : "dmSearch";
-    var requiredSearch = parsed.searchFields.filter(function (field) { return field.required; }).map(jsFieldMeta);
-    var requiredData = parsed.dataFields.filter(function (field) { return field.required; }).map(jsFieldMeta);
-
-    lines.push("/************************************************");
-    lines.push(" * @파일명: " + getFileBaseName(model) + ".js");
-    lines.push(" * @화면명: " + model.screenTitle);
-    lines.push(" * @작성자: " + (cleanText(model.author) || "eXBuilder6 화면 마법사"));
-    lines.push(" * @작성일: " + date.getFullYear() + ". " + pad2(date.getMonth() + 1) + ". " + pad2(date.getDate()) + ".");
-    lines.push(" ************************************************/");
-    lines.push("");
-    if (model.includeCommonUtil) {
-      var utilFactory = sanitizeIdentifier(model.utilFactory || CONFIG.utilFactory || "createCommonUtil", "createCommonUtil");
-      lines.push("var util = typeof " + utilFactory + " === \"function\" ? " + utilFactory + "() : null;");
-    } else {
-      lines.push("var util = null;");
-    }
-    lines.push("");
-    lines.push("var REQUIRED_SEARCH_FIELDS = " + JSON.stringify(requiredSearch, null, 2) + ";");
-    lines.push("var REQUIRED_DATA_FIELDS = " + JSON.stringify(requiredData, null, 2) + ";");
-    lines.push("");
-    lines.push("function onBodyLoad(e) {");
-    if (isPopup) {
-      lines.push("  applyPopupInitValue();");
-    } else if (model.includeSearch) {
-      lines.push("  focusFirstControl(\"" + jsString(mapId) + "\");");
-    } else {
-      lines.push("  // 초기 화면 상태를 설정합니다.");
-    }
-    lines.push("}");
-    lines.push("");
-    lines.push(generateSharedJs());
-
-    if (isList) {
-      lines.push(generateListJs(model));
-    } else if (isForm) {
-      lines.push(generateFormJs(model));
-    } else {
-      lines.push(generatePopupJs(model, parsed));
-    }
-
-    return lines.join("\n");
-  }
-
-  function generateSharedJs() {
-    return [
-      "function isEmpty(value) {",
-      "  return value === null || value === undefined || String(value).trim() === \"\";",
-      "}",
-      "",
-      "function alertMessage(message) {",
-      "  if (util && util.Msg && util.Msg.alert) {",
-      "    util.Msg.alert(app, message);",
-      "    return;",
-      "  }",
-      "  alert(message);",
-      "}",
-      "",
-      "function confirmMessage(message, callback) {",
-      "  if (util && util.Msg && util.Msg.confirm) {",
-      "    util.Msg.confirm(app, message, \"\", callback);",
-      "    return;",
-      "  }",
-      "  if (confirm(message)) callback();",
-      "}",
-      "",
-      "function sendSubmission(submissionId, callback) {",
-      "  if (util && util.Submit && util.Submit.send) {",
-      "    util.Submit.send(app, submissionId, function(success) {",
-      "      if (callback) callback(success);",
-      "    });",
-      "    return;",
-      "  }",
-      "  var submission = app.lookup(submissionId);",
-      "  if (!submission || !submission.send) {",
-      "    alertMessage(\"Submission을 찾을 수 없습니다: \" + submissionId);",
-      "    return;",
-      "  }",
-      "  submission.send();",
-      "  if (callback) callback(true);",
-      "}",
-      "",
-      "function focusFirstControl(dataMapId) {",
-      "  var dataMap = app.lookup(dataMapId);",
-      "  if (!dataMap) return;",
-      "  try {",
-      "    var controls = app.getContainer().getAllRecursiveChildren();",
-      "    for (var i = 0; i < controls.length; i++) {",
-      "      if (controls[i].focus && controls[i].type !== \"output\") {",
-      "        controls[i].focus();",
-      "        return;",
-      "      }",
-      "    }",
-      "  } catch (e) {}",
-      "}",
-      "",
-      "function validateMap(dataMapId, requiredFields) {",
-      "  var dataMap = app.lookup(dataMapId);",
-      "  if (!dataMap) {",
-      "    alertMessage(\"DataMap을 찾을 수 없습니다: \" + dataMapId);",
-      "    return false;",
-      "  }",
-      "  for (var i = 0; i < requiredFields.length; i++) {",
-      "    var field = requiredFields[i];",
-      "    if (isEmpty(dataMap.getValue(field.name))) {",
-      "      alertMessage(field.label + \"을(를) 입력해 주세요.\");",
-      "      return false;",
-      "    }",
-      "  }",
-      "  return true;",
-      "}",
-      "",
-      "function validateRows(dataSetId, requiredFields) {",
-      "  var dataSet = app.lookup(dataSetId);",
-      "  if (!dataSet) {",
-      "    alertMessage(\"DataSet을 찾을 수 없습니다: \" + dataSetId);",
-      "    return false;",
-      "  }",
-      "  for (var row = 0; row < dataSet.getRowCount(); row++) {",
-      "    for (var i = 0; i < requiredFields.length; i++) {",
-      "      var field = requiredFields[i];",
-      "      if (isEmpty(dataSet.getValue(row, field.name))) {",
-      "        alertMessage((row + 1) + \"행의 \" + field.label + \"을(를) 입력해 주세요.\");",
-      "        return false;",
-      "      }",
-      "    }",
-      "  }",
-      "  return true;",
-      "}",
-      "",
-      "function hasChangedRows(dataSetId) {",
-      "  var dataSet = app.lookup(dataSetId);",
-      "  if (!dataSet) return false;",
-      "  var unchanged = cpr.data.tabledata.RowState.UNCHANGED;",
-      "  for (var i = 0; i < dataSet.getRowCount(); i++) {",
-      "    if (dataSet.getRowState(i) !== unchanged) return true;",
-      "  }",
-      "  return false;",
-      "}",
-      ""
-    ].join("\n");
-  }
-
-  function generateListJs(model) {
-    var lines = [];
-    if (model.includeSearch) {
-      lines.push("function doSearch() {");
-      lines.push("  if (!validateMap(\"dmSearch\", REQUIRED_SEARCH_FIELDS)) return;");
-      lines.push("  sendSubmission(\"subList\", function(success) {");
-      lines.push("    if (success && util && util.Msg && util.Msg.notify) {");
-      lines.push("      util.Msg.notify(app, \"" + jsString(messageText(model, "searchSuccessCode", "INF-M001")) + "\");");
-      lines.push("    }");
-      lines.push("  });");
-      lines.push("}");
-      lines.push("");
-      lines.push("function onBtnSearchClick(e) {");
-      lines.push("  doSearch();");
-      lines.push("}");
-      lines.push("");
-    }
-    if (model.includeReset) {
-      lines.push("function onBtnResetClick(e) {");
-      lines.push("  var dmSearch = app.lookup(\"dmSearch\");");
-      lines.push("  if (dmSearch && dmSearch.clear) dmSearch.clear();");
-      lines.push("  focusFirstControl(\"dmSearch\");");
-      lines.push("}");
-      lines.push("");
-    }
-    if (model.includeAdd) {
-      lines.push("function onBtnAddClick(e) {");
-      lines.push("  var dsList = app.lookup(\"dsList\");");
-      lines.push("  if (!dsList) return;");
-      lines.push("  if (dsList.insertRowData) {");
-      lines.push("    dsList.insertRowData(dsList.getRowCount(), true, {});");
-      lines.push("  } else if (dsList.addRow) {");
-      lines.push("    dsList.addRow();");
-      lines.push("  }");
-      lines.push("}");
-      lines.push("");
-    }
-    if (model.includeSave) {
-      lines.push("function onBtnSaveClick(e) {");
-      lines.push("  if (!hasChangedRows(\"dsList\")) {");
-      lines.push("    alertMessage(\"" + jsString(messageText(model, "noChangedRows", "저장할 변경사항이 없습니다.")) + "\");");
-      lines.push("    return;");
-      lines.push("  }");
-      lines.push("  if (!validateRows(\"dsList\", REQUIRED_DATA_FIELDS)) return;");
-      lines.push("  confirmMessage(\"" + jsString(messageText(model, "saveConfirm", "저장하시겠습니까?")) + "\", function() {");
-      lines.push("    sendSubmission(\"subSave\", function(success) {");
-      lines.push("      if (success) doSearch();");
-      lines.push("    });");
-      lines.push("  });");
-      lines.push("}");
-      lines.push("");
-    }
-    if (model.includeDelete) {
-      lines.push("function onBtnDeleteClick(e) {");
-      lines.push("  var grid = app.lookup(\"grdList\");");
-      lines.push("  var dsList = app.lookup(\"dsList\");");
-      lines.push("  if (!grid || !dsList) return;");
-      lines.push("  var indices = grid.getCheckRowIndices ? grid.getCheckRowIndices() : [];");
-      lines.push("  if (!indices.length && grid.getSelectedRowIndex) {");
-      lines.push("    var selected = grid.getSelectedRowIndex();");
-      lines.push("    if (selected >= 0) indices = [selected];");
-      lines.push("  }");
-      lines.push("  if (!indices.length) {");
-      lines.push("    alertMessage(\"" + jsString(messageText(model, "deleteSelectRequired", "삭제할 행을 선택해 주세요.")) + "\");");
-      lines.push("    return;");
-      lines.push("  }");
-      lines.push("  confirmMessage(\"" + jsString(messageText(model, "deleteConfirm", "선택한 행을 삭제하시겠습니까?")) + "\", function() {");
-      lines.push("    for (var i = indices.length - 1; i >= 0; i--) {");
-      lines.push("      dsList.deleteRow(indices[i]);");
-      lines.push("    }");
-      lines.push("    sendSubmission(\"subDelete\", function(success) {");
-      lines.push("      if (success) doSearch();");
-      lines.push("    });");
-      lines.push("  });");
-      lines.push("}");
-      lines.push("");
-    }
-    return lines.join("\n");
-  }
-
-  function generateFormJs(model) {
-    var lines = [];
-    if (model.includeSearch) {
-      lines.push("function doSearch() {");
-      lines.push("  if (!validateMap(\"dmForm\", REQUIRED_SEARCH_FIELDS)) return;");
-      lines.push("  sendSubmission(\"subList\");");
-      lines.push("}");
-      lines.push("");
-      lines.push("function onBtnSearchClick(e) {");
-      lines.push("  doSearch();");
-      lines.push("}");
-      lines.push("");
-    }
-    if (model.includeReset) {
-      lines.push("function onBtnResetClick(e) {");
-      lines.push("  var dmForm = app.lookup(\"dmForm\");");
-      lines.push("  if (dmForm && dmForm.clear) dmForm.clear();");
-      lines.push("  focusFirstControl(\"dmForm\");");
-      lines.push("}");
-      lines.push("");
-    }
-    if (model.includeSave) {
-      lines.push("function onBtnSaveClick(e) {");
-      lines.push("  if (!validateMap(\"dmForm\", REQUIRED_DATA_FIELDS)) return;");
-      lines.push("  confirmMessage(\"" + jsString(messageText(model, "saveConfirm", "저장하시겠습니까?")) + "\", function() {");
-      lines.push("    sendSubmission(\"subSave\");");
-      lines.push("  });");
-      lines.push("}");
-      lines.push("");
-    }
-    return lines.join("\n");
-  }
-
-  function generatePopupJs(model, parsed) {
-    var resultFields = parsed.dataFields.map(function (field) { return field.name; });
-    return [
-      "function getPopupInitValue() {",
-      "  try {",
-      "    if (window.__" + sanitizeIdentifier(model.screenId, "popup") + "Init) return window.__" + sanitizeIdentifier(model.screenId, "popup") + "Init;",
-      "  } catch (e) {}",
-      "  try {",
-      "    if (window.top.__" + sanitizeIdentifier(model.screenId, "popup") + "Init) return window.top.__" + sanitizeIdentifier(model.screenId, "popup") + "Init;",
-      "  } catch (e) {}",
-      "  return {};",
-      "}",
-      "",
-      "function applyPopupInitValue() {",
-      "  var initValue = getPopupInitValue();",
-      "  var dmForm = app.lookup(\"dmForm\");",
-      "  if (!dmForm) return;",
-      "  Object.keys(initValue).forEach(function(key) {",
-      "    try { dmForm.setValue(key, initValue[key]); } catch (e) {}",
-      "  });",
-      "}",
-      "",
-      "function closePopup(result) {",
-      "  try { window.__" + sanitizeIdentifier(model.screenId, "popup") + "Result = result; } catch (e) {}",
-      "  try { window.top.__" + sanitizeIdentifier(model.screenId, "popup") + "Result = result; } catch (e) {}",
-      "  try { app.close(result); return; } catch (e) {}",
-      "  try { if (app.getHost && app.getHost()) app.getHost().close(result); } catch (e) {}",
-      "}",
-      "",
-      "function getSelectedRowData() {",
-      "  var grid = app.lookup(\"grdList\");",
-      "  var dsList = app.lookup(\"dsList\");",
-      "  if (!grid || !dsList || !grid.getSelectedRowIndex) return null;",
-      "  var rowIndex = grid.getSelectedRowIndex();",
-      "  if (rowIndex < 0) return null;",
-      "  var result = {};",
-      "  var fields = " + JSON.stringify(resultFields, null, 2) + ";",
-      "  fields.forEach(function(name) {",
-      "    result[name] = dsList.getValue(rowIndex, name);",
-      "  });",
-      "  return result;",
-      "}",
-      "",
-      "function doSearch() {",
-      "  if (!validateMap(\"dmForm\", REQUIRED_SEARCH_FIELDS)) return;",
-      "  sendSubmission(\"subList\");",
+      "function onBodyLoad(e) {",
+      "  // 화면 초기화 코드를 작성합니다.",
       "}",
       "",
       "function onBtnSearchClick(e) {",
-      "  doSearch();",
-      "}",
-      "",
-      "function onBtnResetClick(e) {",
-      "  var dmForm = app.lookup(\"dmForm\");",
-      "  if (dmForm && dmForm.clear) dmForm.clear();",
-      "  focusFirstControl(\"dmForm\");",
-      "}",
-      "",
-      "function onBtnConfirmClick(e) {",
-      "  var rowData = getSelectedRowData();",
-      "  if (!rowData) {",
-      "    alertMessage(\"" + jsString(messageText(model, "popupSelectRequired", "선택할 행을 클릭해 주세요.")) + "\");",
-      "    return;",
-      "  }",
-      "  closePopup({ RESULT: \"OK\", DATA: rowData });",
-      "}",
-      "",
-      "function onBtnCloseClick(e) {",
-      "  closePopup({ RESULT: \"CLOSE\" });",
-      "}",
-      ""
+      "  var submission = app.lookup(\"subList\");",
+      "  if (submission && submission.send) submission.send();",
+      "}"
     ].join("\n");
-  }
-
-  function summarizeLogic(model) {
-    var names = [];
-    if (model.includeSearch) names.push("조회");
-    if (model.includeReset) names.push("초기화");
-    if (model.includeAdd) names.push("추가");
-    if (model.includeSave) names.push("저장");
-    if (model.includeDelete) names.push("삭제");
-    if (model.templateType === "popup") names.push("선택 반환");
-    return names.length ? names.join(" / ") : "이벤트 없음";
-  }
-
-  function normalizeConfig(input) {
-    var profiles = input.profiles || {};
-    if (!Object.keys(profiles).length) {
-      profiles = {
-        standard: {
-          label: "기본",
-          appPathPrefix: "app/sample",
-          endpointPrefix: "/sample",
-          utilFactory: "createCommonUtil"
-        }
-      };
-    }
-    return merge({}, input, {
-      defaultProfile: cleanText(input.defaultProfile) || Object.keys(profiles)[0],
-      defaults: input.defaults || {},
-      presets: input.presets || {},
-      profiles: profiles,
-      endpointPatterns: merge({
-        search: "{prefix}/select{ScreenId}.do",
-        save: "{prefix}/save{ScreenId}.do",
-        delete: "{prefix}/delete{ScreenId}.do"
-      }, input.endpointPatterns || {}),
-      messages: merge({
-        searchSuccessCode: "INF-M001",
-        saveConfirm: "저장하시겠습니까?",
-        deleteConfirm: "선택한 행을 삭제하시겠습니까?",
-        noChangedRows: "저장할 변경사항이 없습니다.",
-        deleteSelectRequired: "삭제할 행을 선택해 주세요.",
-        popupSelectRequired: "선택할 행을 클릭해 주세요."
-      }, input.messages || {}),
-      controlAliases: merge({
-        combo: "combobox",
-        select: "combobox",
-        date: "dateinput",
-        calendar: "dateinput",
-        text: "textarea",
-        multiline: "textarea"
-      }, input.controlAliases || {}),
-      controlRules: input.controlRules || [
-        { pattern: "(_DT|_YMD|DATE)$", control: "dateinput" },
-        { pattern: "(^|_)YN$|_CD$", control: "combobox" }
-      ],
-      controlPrefixes: merge({
-        inputbox: "ipb",
-        combobox: "cmb",
-        dateinput: "dti",
-        textarea: "txa"
-      }, input.controlPrefixes || {}),
-      defaultColumnWidths: merge({
-        inputbox: "140",
-        combobox: "90",
-        dateinput: "110",
-        textarea: "240",
-        number: "90"
-      }, input.defaultColumnWidths || {}),
-      codeItems: merge({
-        USE_YN: [
-          { label: "Y", value: "Y" },
-          { label: "N", value: "N" }
-        ]
-      }, input.codeItems || {})
-    });
-  }
-
-  function buildDefaults() {
-    var defaults = merge({}, BUILTIN_DEFAULTS, CONFIG.defaults || {});
-    defaults.projectProfile = getProfileKey(defaults.projectProfile || CONFIG.defaultProfile);
-    return defaults;
-  }
-
-  function buildPresets() {
-    var result = {};
-    Object.keys(BUILTIN_PRESETS).forEach(function (key) {
-      result[key] = merge({}, BUILTIN_PRESETS[key]);
-    });
-    Object.keys(CONFIG.presets || {}).forEach(function (key) {
-      result[key] = merge({}, result[key] || {}, CONFIG.presets[key]);
-    });
-    return result;
-  }
-
-  function getProfileKeys() {
-    return Object.keys(CONFIG.profiles || {});
-  }
-
-  function getProfileKey(value) {
-    var key = cleanText(value);
-    if (key && CONFIG.profiles && CONFIG.profiles[key]) return key;
-    if (CONFIG.defaultProfile && CONFIG.profiles && CONFIG.profiles[CONFIG.defaultProfile]) return CONFIG.defaultProfile;
-    return getProfileKeys()[0] || "standard";
-  }
-
-  function getProjectProfile(value) {
-    return CONFIG.profiles[getProfileKey(value)] || {};
-  }
-
-  function messageText(model, key, fallback) {
-    var messages = model && model.messages ? model.messages : CONFIG.messages;
-    return cleanText(messages && messages[key]) || fallback;
-  }
-
-  function searchGroupHeight(model, fields) {
-    var perRow = clampInt(model.controlsPerRow, 1, 4, 2);
-    return Math.max(1, Math.ceil(Math.max(fields.length, 1) / perRow)) * 40 + 18;
-  }
-
-  function controlId(field) {
-    var prefix = CONFIG.controlPrefixes[field.control] || "ipb";
-    return prefix + toPascal(field.name);
-  }
-
-  function jsFieldMeta(field) {
-    return { name: field.name, label: field.label };
-  }
-
-  function getFileBaseName(model) {
-    var source = model || normalizeState(state);
-    return sanitizeFileName(source.fileBaseName || source.screenId || "sampleScreen");
-  }
-
-  function copyText(text, message) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(function () {
-        showToast(message);
-      }).catch(function () {
-        fallbackCopy(text, message);
-      });
-      return;
-    }
-    fallbackCopy(text, message);
-  }
-
-  function fallbackCopy(text, message) {
-    var area = document.createElement("textarea");
-    area.value = text;
-    area.style.position = "fixed";
-    area.style.left = "-9999px";
-    document.body.appendChild(area);
-    area.focus();
-    area.select();
-    try {
-      document.execCommand("copy");
-      showToast(message);
-    } catch (error) {
-      showToast("복사하지 못했습니다.");
-    }
-    document.body.removeChild(area);
   }
 
   function downloadFile(fileName, content, type) {
@@ -1378,7 +1347,7 @@
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    showToast(fileName + " 파일을 만들었습니다.");
+    showToast(fileName + " 파일을 내보냈습니다.");
   }
 
   function showToast(message) {
@@ -1390,76 +1359,34 @@
     }, 1800);
   }
 
-  function SidFactory() {
-    this.index = 0;
+  function readLength(value, fallback) {
+    var parsed = parseInt(String(value || "").replace(/[^\d.-]/g, ""), 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
   }
 
-  SidFactory.prototype.next = function (prefix) {
-    this.index += 1;
-    var value = ((this.index * 2654435761) >>> 0).toString(16);
-    return prefix + "-" + ("00000000" + value).slice(-8);
-  };
-
-  function normalizeDataType(value) {
-    var type = cleanText(value).toLowerCase();
-    if (["number", "int", "integer", "decimal"].indexOf(type) >= 0) return "number";
-    if (["date", "datetime"].indexOf(type) >= 0) return "string";
-    if (["boolean", "bool"].indexOf(type) >= 0) return "string";
-    return "string";
+  function normalizeCssLength(value) {
+    var text = String(value || "").trim();
+    if (!text) return "";
+    return /[a-z%]+$/i.test(text) ? text : text + "px";
   }
 
-  function normalizeControl(value, type, name) {
-    var control = cleanText(value).toLowerCase();
-    if (CONFIG.controlAliases[control]) return CONFIG.controlAliases[control];
-    if (["inputbox", "combobox", "dateinput", "textarea"].indexOf(control) >= 0) return control;
-    for (var i = 0; i < CONFIG.controlRules.length; i++) {
-      var rule = CONFIG.controlRules[i];
-      try {
-        if (new RegExp(rule.pattern, rule.flags || "").test(name)) return rule.control;
-      } catch (error) {}
-    }
-    if (type === "number") return "inputbox";
-    return "inputbox";
+  function normalizeColumnWidth(value) {
+    var text = String(value || "").trim();
+    if (!text) return "120px";
+    return /[a-z%]+$/i.test(text) ? text : text + "px";
   }
 
-  function defaultColumnWidth(type, control) {
-    return CONFIG.defaultColumnWidths[control] || CONFIG.defaultColumnWidths[type] || "140";
+  function repeat(value, count) {
+    return new Array(count + 1).join(value);
   }
 
-  function normalizeAlign(value, type) {
-    var align = cleanText(value).toLowerCase();
-    if (["left", "l", "좌", "좌측"].indexOf(align) >= 0) return "left";
-    if (["center", "c", "middle", "중앙", "가운데"].indexOf(align) >= 0) return "center";
-    if (["right", "r", "우", "우측"].indexOf(align) >= 0) return "right";
-    return type === "number" ? "right" : "";
+  function baseName(fileName) {
+    return String(fileName || "screen").replace(/\.[^.]+$/, "") || "screen";
   }
 
-  function parseBooleanFlag(value) {
-    return /^(y|yes|required|readonly|read.?only|true|1|읽기|읽기전용)$/i.test(cleanText(value));
-  }
-
-  function resolveCodeItems(value) {
-    var source = cleanText(value);
-    var rawItems = CONFIG.codeItems[source];
-    if (!rawItems && source.indexOf(",") >= 0) {
-      rawItems = source.split(",");
-    }
-    return (rawItems || []).map(normalizeCodeItem).filter(Boolean);
-  }
-
-  function normalizeCodeItem(item) {
-    if (typeof item === "string") {
-      var parts = item.indexOf(":") >= 0 ? item.split(":") : item.split("|");
-      var value = cleanText(parts[0]);
-      var label = cleanText(parts[1]) || value;
-      return value ? { value: value, label: label } : null;
-    }
-    if (item && typeof item === "object") {
-      var itemValue = cleanText(item.value);
-      var itemLabel = cleanText(item.label) || itemValue;
-      return itemValue ? { value: itemValue, label: itemLabel } : null;
-    }
-    return null;
+  function sanitizeFileName(fileName, fallback) {
+    var name = String(fileName || "").replace(/[\\/:*?"<>|]/g, "").trim();
+    return name || fallback || "screen.clx";
   }
 
   function sanitizeColumnName(value) {
@@ -1469,97 +1396,11 @@
     return name.toUpperCase();
   }
 
-  function sanitizeIdentifier(value, fallback) {
-    var id = String(value || "").trim().replace(/[^A-Za-z0-9_$]/g, "");
-    if (!id) id = fallback || "sampleScreen";
-    if (/^\d/.test(id)) id = "app" + id;
-    return id;
-  }
-
-  function sanitizeFileName(value) {
-    var name = String(value || "").trim().replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, "");
-    return name || "sampleScreen";
-  }
-
-  function humanizeColumn(value) {
-    return String(value || "").split("_").map(function (part) {
-      return part ? part.charAt(0) + part.slice(1).toLowerCase() : "";
-    }).join(" ");
-  }
-
   function toPascal(value) {
     return String(value || "").split(/[_\s-]+/).filter(Boolean).map(function (part) {
       var lower = part.toLowerCase();
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     }).join("");
-  }
-
-  function toCamel(value) {
-    var pascal = toPascal(value);
-    return pascal ? pascal.charAt(0).toLowerCase() + pascal.slice(1) : "";
-  }
-
-  function cleanText(value) {
-    return String(value == null ? "" : value).trim();
-  }
-
-  function cleanPath(value) {
-    return cleanText(value).replace(/[\\/]+$/g, "") || "app/sample";
-  }
-
-  function cleanEndpointPrefix(value) {
-    var prefix = cleanText(value).replace(/\/+$/g, "");
-    if (!prefix) return "";
-    return prefix.charAt(0) === "/" ? prefix : "/" + prefix;
-  }
-
-  function clampInt(value, min, max, fallback) {
-    var number = parseInt(value, 10);
-    if (!Number.isFinite(number)) number = fallback;
-    return Math.max(min, Math.min(max, number));
-  }
-
-  function merge() {
-    var result = {};
-    Array.prototype.slice.call(arguments).forEach(function (source) {
-      Object.keys(source || {}).forEach(function (key) {
-        result[key] = source[key];
-      });
-    });
-    return result;
-  }
-
-  function mergeFields() {
-    var seen = {};
-    var result = [];
-    Array.prototype.slice.call(arguments).forEach(function (list) {
-      (list || []).forEach(function (field) {
-        if (!field || seen[field.name]) return;
-        seen[field.name] = true;
-        result.push(field);
-      });
-    });
-    return result;
-  }
-
-  function repeat(value, count) {
-    return new Array(count + 1).join(value);
-  }
-
-  function xmlAttr(value) {
-    return String(value == null ? "" : value).replace(/[&<>"']/g, function (char) {
-      return {
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&apos;"
-      }[char];
-    });
-  }
-
-  function jsString(value) {
-    return String(value == null ? "" : value).replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
   }
 
   function escapeHtml(value) {
@@ -1572,17 +1413,5 @@
         "'": "&#039;"
       }[char];
     });
-  }
-
-  function escapeAttr(value) {
-    return escapeHtml(value).replace(/`/g, "&#096;");
-  }
-
-  function formatTime(date) {
-    return pad2(date.getHours()) + ":" + pad2(date.getMinutes()) + ":" + pad2(date.getSeconds());
-  }
-
-  function pad2(value) {
-    return String(value).padStart(2, "0");
   }
 })();

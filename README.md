@@ -1,54 +1,42 @@
-# eXBuilder6 화면 마법사
+# eXBuilder6 화면 편집기
 
-eXBuilder6에서 새 화면을 만들 때 반복해서 작성하는 `.clx`와 `.js` 초안을 브라우저에서 바로 생성하는 정적 도구입니다.
+브라우저에서 eXBuilder6 `.clx` 화면을 열고, 시각적으로 확인하고, 속성을 수정한 뒤 다시 `.clx`와 `.js`로 내보내는 쉬운 화면 편집기입니다.
 
 ## 실행
 
 `index.html`을 브라우저로 열면 됩니다. 별도 서버나 빌드 과정은 없습니다.
 
-## 주요 기능
+## 현재 MVP 기능
 
-- 조회 목록, 입력 저장, 팝업 선택 프리셋
-- 프로젝트 프로필별 앱 경로, URL prefix, 공통 util, 메시지 설정
-- 화면명, 화면 ID, 파일명, 크기 입력
-- 조회 조건과 목록/입력 컬럼 정의 및 itemset/정렬/읽기전용 옵션
-- 조회, 초기화, 추가, 저장, 삭제 이벤트 선택
-- 생성된 CLX/JS 미리보기
-- CLX/JS 복사 및 다운로드
-- 브라우저 localStorage 자동 저장
+- 기본 화면은 쉬운 보기로 시작합니다.
+- `.clx` 파일 열기
+- `.js` 파일 열기 및 편집
+- eXBuilder6 화면 구조를 웹 캔버스에서 렌더링
+- `group`, `output`, `inputbox`, `combobox`, `dateinput`, `textarea`, `button`, `grid` 컴포넌트 표시
+- 캔버스에서 컴포넌트 선택
+- 쉬운 속성 패널에서 이름, 표시 글자, 데이터 컬럼, 위치, 크기 수정
+- 컴포넌트를 끌어서 다른 항목과 위치 교환
+- 선택 항목을 위/아래/왼쪽/오른쪽 버튼으로 이동
+- 목록(Grid) 선택 시 컬럼 제목, 데이터 컬럼명, 너비 편집
+- 목록 컬럼 추가 및 삭제
+- 새 컴포넌트 추가
+- 수정한 화면을 `.clx`로 내보내기
+- JS 이벤트 코드를 `.js`로 내보내기
+- 고급 보기에서 화면 구조 트리, 데이터 모델, CLX/JS 소스, 선택 XML 수정
 
-## 프로젝트 설정
+## 설계 방향
 
-프로젝트별 규칙은 `assets/js/config.js`에서 바꿉니다.
+이 도구는 단순 코드 생성기가 아니라 웹 기반 eXBuilder6 화면 편집기를 목표로 합니다. 기본 사용자는 XML을 보지 않고 화면을 고치고, 필요한 경우에만 고급 보기를 열어 CLX/JS를 직접 만집니다.
 
-- `profiles`: 프로젝트 프로필 목록입니다. 앱 경로 prefix, endpoint prefix, 공통 util 팩토리를 지정합니다.
-- `endpointPatterns`: 프로필 적용 시 조회/저장/삭제 URL을 만드는 패턴입니다.
-- `messages`: 생성되는 JS의 확인/경고 문구와 조회 성공 메시지 코드를 지정합니다.
-- `controlRules`: 컬럼명으로 컨트롤을 추론하는 규칙입니다.
-- `codeItems`: combobox itemset 코드입니다. 컬럼 라인의 itemset 칸에서 키로 참조합니다.
+가져온 `.clx`는 XML DOM으로 보관합니다. 현재 UI가 직접 지원하지 않는 eXBuilder6 노드와 속성도 가능한 한 원문 DOM 안에 보존해서, 편집 후 내보낼 때 기존 파일 구조가 크게 훼손되지 않게 합니다.
 
-## 컬럼 입력 형식
+## 앞으로 확장할 것
 
-각 줄에 아래 순서로 적습니다.
-
-```text
-컬럼명 | 라벨 | 타입 | 필수여부 | 컨트롤 | 그리드폭 | itemset | 정렬 | 읽기전용 | 최대길이
-```
-
-예시:
-
-```text
-USER_ID | 사용자 ID | string | Y | inputbox | 140 |  | left | N | 20
-USER_NM | 사용자명 | string | Y | inputbox | 160 |  | left | N | 50
-USE_YN | 사용여부 | string | N | combobox | 80 | USE_YN | center
-REG_DT | 등록일 | string | N | dateinput | 110 |  | center | Y
-MEMO | 메모 | string | N | textarea | 260
-```
-
-뒤쪽 옵션은 비워도 됩니다. 기존처럼 6칸만 입력해도 정상 생성됩니다.
-
-지원 컨트롤: `inputbox`, `combobox`, `dateinput`, `textarea`
-
-## 생성물 성격
-
-생성된 파일은 바로 업무 화면의 출발점으로 쓰기 위한 스캐폴드입니다. 프로젝트별 공통 UDC, 공통 코드 itemset, 권한 처리, 메시지 코드, 서버 응답 규격은 실제 프로젝트 규칙에 맞게 이어 붙이면 됩니다.
+- drag and drop 배치
+- DataMap/DataSet 컬럼 편집 UI
+- Grid 컬럼 편집 UI
+- 공통 UDC와 프로젝트별 컴포넌트 팔레트
+- 이벤트 핸들러 자동 연결
+- CLX 호환성 검사
+- 여러 화면 탭 편집
+- import/export round-trip 테스트 케이스
