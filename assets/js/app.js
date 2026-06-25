@@ -2,8 +2,10 @@
   "use strict";
 
   var STORAGE_KEY = "exbuilder6-screen-wizard:v1";
+  var CONFIG = normalizeConfig(window.EX6_HELPER_CONFIG || {});
 
-  var DEFAULTS = {
+  var BUILTIN_DEFAULTS = {
+    projectProfile: "standard",
     templateType: "list",
     screenTitle: "사용자 목록",
     screenId: "userList",
@@ -37,7 +39,7 @@
     gridHeight: "360"
   };
 
-  var PRESETS = {
+  var BUILTIN_PRESETS = {
     list: {
       templateType: "list",
       screenTitle: "사용자 목록",
@@ -126,12 +128,15 @@
     }
   };
 
+  var DEFAULTS = buildDefaults();
+  var PRESETS = buildPresets();
   var state = {};
   var generated = { clx: "", js: "" };
   var els = {};
 
   document.addEventListener("DOMContentLoaded", function () {
     bindElements();
+    populateProfileOptions();
     state = readSavedState();
     applyStateToForm();
     bindEvents();
@@ -167,11 +172,28 @@
     els.downloadAll = document.getElementById("downloadAll");
   }
 
+  function populateProfileOptions() {
+    var profileField = document.getElementById("projectProfile");
+    if (!profileField) return;
+    var keys = getProfileKeys();
+    profileField.innerHTML = keys.map(function (key) {
+      var profile = getProjectProfile(key);
+      var label = cleanText(profile.label) || key;
+      return '<option value="' + escapeAttr(key) + '">' + escapeHtml(label) + "</option>";
+    }).join("");
+  }
+
   function bindEvents() {
     els.fields.forEach(function (field) {
+      var fieldName = field.getAttribute("data-field");
       var eventName = field.type === "checkbox" || field.tagName === "SELECT" ? "change" : "input";
       field.addEventListener(eventName, function () {
         state = readFormState();
+        if (fieldName === "projectProfile") {
+          state = applyProfileGeneratedValues(state);
+          applyStateToForm();
+          showToast("프로필 규칙을 적용했습니다.");
+        }
         persistState();
         render();
       });
@@ -191,9 +213,14 @@
 
     els.applyPreset.addEventListener("click", function () {
       var type = document.getElementById("templateType").value || "list";
+      var currentProfile = getProfileKey(state.projectProfile || DEFAULTS.projectProfile);
       state = merge({}, DEFAULTS, PRESETS[type] || PRESETS.list, {
-        author: state.author || ""
+        author: state.author || "",
+        projectProfile: currentProfile
       });
+      if (currentProfile !== CONFIG.defaultProfile) {
+        state = applyProfileGeneratedValues(state);
+      }
       applyStateToForm();
       persistState();
       render();
@@ -237,9 +264,9 @@
   function readSavedState() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return merge({}, DEFAULTS, JSON.parse(raw));
+      if (raw) return normalizeState(merge({}, DEFAULTS, JSON.parse(raw)));
     } catch (error) {}
-    return merge({}, DEFAULTS);
+    return normalizeState(merge({}, DEFAULTS));
   }
 
   function persistState() {
@@ -323,18 +350,60 @@
   }
 
   function normalizeState(input) {
-    var next = merge({}, DEFAULTS, input || {});
+    var base = merge({}, DEFAULTS, input || {});
+    var profileKey = getProfileKey(base.projectProfile);
+    var profile = getProjectProfile(profileKey);
+    var next = merge({}, DEFAULTS, profile.defaults || {}, input || {}, {
+      projectProfile: profileKey
+    });
     next.templateType = PRESETS[next.templateType] ? next.templateType : "list";
     next.screenTitle = cleanText(next.screenTitle) || "새 화면";
     next.screenId = sanitizeIdentifier(next.screenId || toCamel(next.screenTitle) || "sampleScreen", "sampleScreen");
     next.fileBaseName = sanitizeFileName(next.fileBaseName || next.screenId || "sampleScreen");
-    next.appPath = cleanText(next.appPath) || "app/sample/" + next.screenId;
+    next.appPath = cleanText(next.appPath) || buildAppPath(next, profile);
     next.screenWidth = String(clampInt(next.screenWidth, 320, 3000, 1280));
     next.screenHeight = String(clampInt(next.screenHeight, 240, 2200, 620));
     next.controlsPerRow = String(clampInt(next.controlsPerRow, 1, 4, 2));
     next.labelWidth = String(clampInt(next.labelWidth, 50, 180, 90));
     next.gridHeight = String(clampInt(next.gridHeight, 120, 1200, 360));
+    next.utilFactory = cleanText(profile.utilFactory || CONFIG.utilFactory || "createCommonUtil");
+    next.messages = merge({}, CONFIG.messages, profile.messages || {});
     return next;
+  }
+
+  function applyProfileGeneratedValues(input) {
+    var next = normalizeState(input);
+    var profile = getProjectProfile(next.projectProfile);
+    next.appPath = buildAppPath(next, profile);
+    if (cleanText(CONFIG.endpointPatterns.search)) {
+      next.endpointSearch = buildEndpoint(CONFIG.endpointPatterns.search, next, profile);
+    }
+    if (cleanText(CONFIG.endpointPatterns.save)) {
+      next.endpointSave = buildEndpoint(CONFIG.endpointPatterns.save, next, profile);
+    }
+    if (cleanText(CONFIG.endpointPatterns.delete)) {
+      next.endpointDelete = buildEndpoint(CONFIG.endpointPatterns.delete, next, profile);
+    }
+    return normalizeState(next);
+  }
+
+  function buildAppPath(model, profile) {
+    var prefix = cleanPath(profile.appPathPrefix || CONFIG.appPathPrefix || "app/sample");
+    return prefix + "/" + sanitizeIdentifier(model.screenId || "sampleScreen", "sampleScreen");
+  }
+
+  function buildEndpoint(pattern, model, profile) {
+    var screenId = sanitizeIdentifier(model.screenId || "sampleScreen", "sampleScreen");
+    var replacements = {
+      prefix: cleanEndpointPrefix(profile.endpointPrefix || ""),
+      screenId: screenId,
+      ScreenId: toPascal(screenId),
+      fileBaseName: sanitizeFileName(model.fileBaseName || screenId),
+      appPath: cleanText(model.appPath)
+    };
+    return String(pattern || "").replace(/\{([^}]+)\}/g, function (match, key) {
+      return Object.prototype.hasOwnProperty.call(replacements, key) ? replacements[key] : match;
+    });
   }
 
   function validateState(model, parsed) {
@@ -438,6 +507,10 @@
     var required = /^(y|yes|required|필수|true|1)$/i.test(cleanText(parts[3]));
     var control = normalizeControl(parts[4], type, name);
     var width = cleanText(parts[5]) || defaultColumnWidth(type, control);
+    var itemset = cleanText(parts[6]);
+    var align = normalizeAlign(parts[7], type);
+    var readonly = parseBooleanFlag(parts[8]);
+    var maxLength = cleanText(parts[9]);
 
     return {
       name: name,
@@ -445,7 +518,11 @@
       type: type,
       required: required,
       control: control,
-      width: width
+      width: width,
+      itemset: itemset,
+      align: align,
+      readonly: readonly,
+      maxLength: maxLength
     };
   }
 
@@ -635,20 +712,17 @@
   function generateControl(field, sid, row, col, mode) {
     var id = controlId(field);
     var fieldLabel = xmlAttr(field.label);
-    var required = field.required ? '\n          <cl:attribute name="required" value="Y"/>' : "";
+    var attributes = generateControlAttributes(field);
     var bind = '\n          <cl:relativebind property="value" columnname="' + xmlAttr(field.name) + '"/>';
     var formData = '\n          <cl:formdata std:sid="' + sid.next("f-data") + '" row="' + row + '" col="' + col + '"/>';
-    var itemLabel = mode === "search" ? "전체" : "선택";
 
     if (field.control === "combobox") {
       return [
         '        <cl:combobox std:sid="' + sid.next("c-box") + '" id="' + xmlAttr(id) + '" fieldLabel="' + fieldLabel + '" preventinput="true">',
-        required,
+        attributes,
         bind,
         formData,
-        '          <cl:item std:sid="' + sid.next("t-item") + '" label="' + itemLabel + '" value=""/>',
-        '          <cl:item std:sid="' + sid.next("t-item") + '" label="Y" value="Y"/>',
-        '          <cl:item std:sid="' + sid.next("t-item") + '" label="N" value="N"/>',
+        generateComboItems(field, mode, sid),
         '        </cl:combobox>'
       ].join("");
     }
@@ -656,7 +730,7 @@
     if (field.control === "dateinput") {
       return [
         '        <cl:dateinput std:sid="' + sid.next("d-input") + '" id="' + xmlAttr(id) + '" fieldLabel="' + fieldLabel + '" mask="YYYY-MM-DD" format="YYYYMMDD">',
-        required,
+        attributes,
         bind,
         formData,
         '        </cl:dateinput>'
@@ -666,7 +740,7 @@
     if (field.control === "textarea") {
       return [
         '        <cl:textarea std:sid="' + sid.next("t-area") + '" id="' + xmlAttr(id) + '" fieldLabel="' + fieldLabel + '">',
-        required,
+        attributes,
         bind,
         formData,
         '        </cl:textarea>'
@@ -675,11 +749,32 @@
 
     return [
       '        <cl:inputbox std:sid="' + sid.next("i-box") + '" id="' + xmlAttr(id) + '" fieldLabel="' + fieldLabel + '">',
-      required,
+      attributes,
       bind,
       formData,
       '        </cl:inputbox>'
     ].join("");
+  }
+
+  function generateControlAttributes(field) {
+    var attrs = [];
+    if (field.required) attrs.push('<cl:attribute name="required" value="Y"/>');
+    if (field.readonly) attrs.push('<cl:attribute name="readonly" value="Y"/>');
+    if (field.maxLength) attrs.push('<cl:attribute name="maxlength" value="' + xmlAttr(field.maxLength) + '"/>');
+    return attrs.length ? "\n          " + attrs.join("\n          ") : "";
+  }
+
+  function generateComboItems(field, mode, sid) {
+    var itemLabel = mode === "search" ? "전체" : "선택";
+    var items = resolveCodeItems(field.itemset);
+    var lines = ['          <cl:item std:sid="' + sid.next("t-item") + '" label="' + itemLabel + '" value=""/>'];
+    if (!items.length) {
+      items = resolveCodeItems("USE_YN");
+    }
+    items.forEach(function (item) {
+      lines.push('          <cl:item std:sid="' + sid.next("t-item") + '" label="' + xmlAttr(item.label) + '" value="' + xmlAttr(item.value) + '"/>');
+    });
+    return "\n" + lines.join("\n") + "\n";
   }
 
   function generateGrid(model, fields, sid, rowIndex) {
@@ -699,7 +794,8 @@
     lines.push('        <cl:griddetail std:sid="' + sid.next("gd-band") + '">');
     lines.push('          <cl:gridrow std:sid="' + sid.next("g-row") + '" height="28px"/>');
     fields.forEach(function (field, index) {
-      var style = field.type === "number" ? ' style="text-align:right;"' : "";
+      var align = field.align || (field.type === "number" ? "right" : "");
+      var style = align ? ' style="text-align:' + xmlAttr(align) + ';"' : "";
       lines.push('          <cl:gridcell std:sid="' + sid.next("gd-cell") + '" rowindex="0" colindex="' + index + '"' + style + ' columnname="' + xmlAttr(field.name) + '"/>');
     });
     lines.push("        </cl:griddetail>");
@@ -794,7 +890,8 @@
     lines.push(" ************************************************/");
     lines.push("");
     if (model.includeCommonUtil) {
-      lines.push("var util = typeof createCommonUtil === \"function\" ? createCommonUtil() : null;");
+      var utilFactory = sanitizeIdentifier(model.utilFactory || CONFIG.utilFactory || "createCommonUtil", "createCommonUtil");
+      lines.push("var util = typeof " + utilFactory + " === \"function\" ? " + utilFactory + "() : null;");
     } else {
       lines.push("var util = null;");
     }
@@ -931,7 +1028,7 @@
       lines.push("  if (!validateMap(\"dmSearch\", REQUIRED_SEARCH_FIELDS)) return;");
       lines.push("  sendSubmission(\"subList\", function(success) {");
       lines.push("    if (success && util && util.Msg && util.Msg.notify) {");
-      lines.push("      util.Msg.notify(app, \"INF-M001\");");
+      lines.push("      util.Msg.notify(app, \"" + jsString(messageText(model, "searchSuccessCode", "INF-M001")) + "\");");
       lines.push("    }");
       lines.push("  });");
       lines.push("}");
@@ -964,11 +1061,11 @@
     if (model.includeSave) {
       lines.push("function onBtnSaveClick(e) {");
       lines.push("  if (!hasChangedRows(\"dsList\")) {");
-      lines.push("    alertMessage(\"저장할 변경사항이 없습니다.\");");
+      lines.push("    alertMessage(\"" + jsString(messageText(model, "noChangedRows", "저장할 변경사항이 없습니다.")) + "\");");
       lines.push("    return;");
       lines.push("  }");
       lines.push("  if (!validateRows(\"dsList\", REQUIRED_DATA_FIELDS)) return;");
-      lines.push("  confirmMessage(\"저장하시겠습니까?\", function() {");
+      lines.push("  confirmMessage(\"" + jsString(messageText(model, "saveConfirm", "저장하시겠습니까?")) + "\", function() {");
       lines.push("    sendSubmission(\"subSave\", function(success) {");
       lines.push("      if (success) doSearch();");
       lines.push("    });");
@@ -987,10 +1084,10 @@
       lines.push("    if (selected >= 0) indices = [selected];");
       lines.push("  }");
       lines.push("  if (!indices.length) {");
-      lines.push("    alertMessage(\"삭제할 행을 선택해 주세요.\");");
+      lines.push("    alertMessage(\"" + jsString(messageText(model, "deleteSelectRequired", "삭제할 행을 선택해 주세요.")) + "\");");
       lines.push("    return;");
       lines.push("  }");
-      lines.push("  confirmMessage(\"선택한 행을 삭제하시겠습니까?\", function() {");
+      lines.push("  confirmMessage(\"" + jsString(messageText(model, "deleteConfirm", "선택한 행을 삭제하시겠습니까?")) + "\", function() {");
       lines.push("    for (var i = indices.length - 1; i >= 0; i--) {");
       lines.push("      dsList.deleteRow(indices[i]);");
       lines.push("    }");
@@ -1028,7 +1125,7 @@
     if (model.includeSave) {
       lines.push("function onBtnSaveClick(e) {");
       lines.push("  if (!validateMap(\"dmForm\", REQUIRED_DATA_FIELDS)) return;");
-      lines.push("  confirmMessage(\"저장하시겠습니까?\", function() {");
+      lines.push("  confirmMessage(\"" + jsString(messageText(model, "saveConfirm", "저장하시겠습니까?")) + "\", function() {");
       lines.push("    sendSubmission(\"subSave\");");
       lines.push("  });");
       lines.push("}");
@@ -1098,7 +1195,7 @@
       "function onBtnConfirmClick(e) {",
       "  var rowData = getSelectedRowData();",
       "  if (!rowData) {",
-      "    alertMessage(\"선택할 행을 클릭해 주세요.\");",
+      "    alertMessage(\"" + jsString(messageText(model, "popupSelectRequired", "선택할 행을 클릭해 주세요.")) + "\");",
       "    return;",
       "  }",
       "  closePopup({ RESULT: \"OK\", DATA: rowData });",
@@ -1122,18 +1219,114 @@
     return names.length ? names.join(" / ") : "이벤트 없음";
   }
 
+  function normalizeConfig(input) {
+    var profiles = input.profiles || {};
+    if (!Object.keys(profiles).length) {
+      profiles = {
+        standard: {
+          label: "기본",
+          appPathPrefix: "app/sample",
+          endpointPrefix: "/sample",
+          utilFactory: "createCommonUtil"
+        }
+      };
+    }
+    return merge({}, input, {
+      defaultProfile: cleanText(input.defaultProfile) || Object.keys(profiles)[0],
+      defaults: input.defaults || {},
+      presets: input.presets || {},
+      profiles: profiles,
+      endpointPatterns: merge({
+        search: "{prefix}/select{ScreenId}.do",
+        save: "{prefix}/save{ScreenId}.do",
+        delete: "{prefix}/delete{ScreenId}.do"
+      }, input.endpointPatterns || {}),
+      messages: merge({
+        searchSuccessCode: "INF-M001",
+        saveConfirm: "저장하시겠습니까?",
+        deleteConfirm: "선택한 행을 삭제하시겠습니까?",
+        noChangedRows: "저장할 변경사항이 없습니다.",
+        deleteSelectRequired: "삭제할 행을 선택해 주세요.",
+        popupSelectRequired: "선택할 행을 클릭해 주세요."
+      }, input.messages || {}),
+      controlAliases: merge({
+        combo: "combobox",
+        select: "combobox",
+        date: "dateinput",
+        calendar: "dateinput",
+        text: "textarea",
+        multiline: "textarea"
+      }, input.controlAliases || {}),
+      controlRules: input.controlRules || [
+        { pattern: "(_DT|_YMD|DATE)$", control: "dateinput" },
+        { pattern: "(^|_)YN$|_CD$", control: "combobox" }
+      ],
+      controlPrefixes: merge({
+        inputbox: "ipb",
+        combobox: "cmb",
+        dateinput: "dti",
+        textarea: "txa"
+      }, input.controlPrefixes || {}),
+      defaultColumnWidths: merge({
+        inputbox: "140",
+        combobox: "90",
+        dateinput: "110",
+        textarea: "240",
+        number: "90"
+      }, input.defaultColumnWidths || {}),
+      codeItems: merge({
+        USE_YN: [
+          { label: "Y", value: "Y" },
+          { label: "N", value: "N" }
+        ]
+      }, input.codeItems || {})
+    });
+  }
+
+  function buildDefaults() {
+    var defaults = merge({}, BUILTIN_DEFAULTS, CONFIG.defaults || {});
+    defaults.projectProfile = getProfileKey(defaults.projectProfile || CONFIG.defaultProfile);
+    return defaults;
+  }
+
+  function buildPresets() {
+    var result = {};
+    Object.keys(BUILTIN_PRESETS).forEach(function (key) {
+      result[key] = merge({}, BUILTIN_PRESETS[key]);
+    });
+    Object.keys(CONFIG.presets || {}).forEach(function (key) {
+      result[key] = merge({}, result[key] || {}, CONFIG.presets[key]);
+    });
+    return result;
+  }
+
+  function getProfileKeys() {
+    return Object.keys(CONFIG.profiles || {});
+  }
+
+  function getProfileKey(value) {
+    var key = cleanText(value);
+    if (key && CONFIG.profiles && CONFIG.profiles[key]) return key;
+    if (CONFIG.defaultProfile && CONFIG.profiles && CONFIG.profiles[CONFIG.defaultProfile]) return CONFIG.defaultProfile;
+    return getProfileKeys()[0] || "standard";
+  }
+
+  function getProjectProfile(value) {
+    return CONFIG.profiles[getProfileKey(value)] || {};
+  }
+
+  function messageText(model, key, fallback) {
+    var messages = model && model.messages ? model.messages : CONFIG.messages;
+    return cleanText(messages && messages[key]) || fallback;
+  }
+
   function searchGroupHeight(model, fields) {
     var perRow = clampInt(model.controlsPerRow, 1, 4, 2);
     return Math.max(1, Math.ceil(Math.max(fields.length, 1) / perRow)) * 40 + 18;
   }
 
   function controlId(field) {
-    var prefix = {
-      combobox: "cmb",
-      dateinput: "dti",
-      textarea: "txa",
-      inputbox: "ipb"
-    }[field.control] || "ipb";
+    var prefix = CONFIG.controlPrefixes[field.control] || "ipb";
     return prefix + toPascal(field.name);
   }
 
@@ -1217,21 +1410,56 @@
 
   function normalizeControl(value, type, name) {
     var control = cleanText(value).toLowerCase();
-    if (["combo", "combobox", "select"].indexOf(control) >= 0) return "combobox";
-    if (["date", "dateinput", "calendar"].indexOf(control) >= 0) return "dateinput";
-    if (["textarea", "text", "multiline"].indexOf(control) >= 0) return "textarea";
-    if (/(_DT|_YMD|DATE)$/.test(name)) return "dateinput";
-    if (/(^|_)YN$/.test(name) || /_CD$/.test(name)) return "combobox";
+    if (CONFIG.controlAliases[control]) return CONFIG.controlAliases[control];
+    if (["inputbox", "combobox", "dateinput", "textarea"].indexOf(control) >= 0) return control;
+    for (var i = 0; i < CONFIG.controlRules.length; i++) {
+      var rule = CONFIG.controlRules[i];
+      try {
+        if (new RegExp(rule.pattern, rule.flags || "").test(name)) return rule.control;
+      } catch (error) {}
+    }
     if (type === "number") return "inputbox";
     return "inputbox";
   }
 
   function defaultColumnWidth(type, control) {
-    if (control === "dateinput") return "110";
-    if (control === "combobox") return "90";
-    if (control === "textarea") return "240";
-    if (type === "number") return "90";
-    return "140";
+    return CONFIG.defaultColumnWidths[control] || CONFIG.defaultColumnWidths[type] || "140";
+  }
+
+  function normalizeAlign(value, type) {
+    var align = cleanText(value).toLowerCase();
+    if (["left", "l", "좌", "좌측"].indexOf(align) >= 0) return "left";
+    if (["center", "c", "middle", "중앙", "가운데"].indexOf(align) >= 0) return "center";
+    if (["right", "r", "우", "우측"].indexOf(align) >= 0) return "right";
+    return type === "number" ? "right" : "";
+  }
+
+  function parseBooleanFlag(value) {
+    return /^(y|yes|required|readonly|read.?only|true|1|읽기|읽기전용)$/i.test(cleanText(value));
+  }
+
+  function resolveCodeItems(value) {
+    var source = cleanText(value);
+    var rawItems = CONFIG.codeItems[source];
+    if (!rawItems && source.indexOf(",") >= 0) {
+      rawItems = source.split(",");
+    }
+    return (rawItems || []).map(normalizeCodeItem).filter(Boolean);
+  }
+
+  function normalizeCodeItem(item) {
+    if (typeof item === "string") {
+      var parts = item.indexOf(":") >= 0 ? item.split(":") : item.split("|");
+      var value = cleanText(parts[0]);
+      var label = cleanText(parts[1]) || value;
+      return value ? { value: value, label: label } : null;
+    }
+    if (item && typeof item === "object") {
+      var itemValue = cleanText(item.value);
+      var itemLabel = cleanText(item.label) || itemValue;
+      return itemValue ? { value: itemValue, label: itemLabel } : null;
+    }
+    return null;
   }
 
   function sanitizeColumnName(value) {
@@ -1273,6 +1501,16 @@
 
   function cleanText(value) {
     return String(value == null ? "" : value).trim();
+  }
+
+  function cleanPath(value) {
+    return cleanText(value).replace(/[\\/]+$/g, "") || "app/sample";
+  }
+
+  function cleanEndpointPrefix(value) {
+    var prefix = cleanText(value).replace(/\/+$/g, "");
+    if (!prefix) return "";
+    return prefix.charAt(0) === "/" ? prefix : "/" + prefix;
   }
 
   function clampInt(value, min, max, fallback) {
